@@ -1,0 +1,2561 @@
+<!--
+======================================================================
+Creator: Prasanna Kurukuladithya (Priya)
+Application: Gaia Lake Bungalow Assets and Inventory Manager
+Copyright © 2026. All rights reserved.
+
+Usage Notice: Internal operational tool. Unauthorized copying, modification,
+or redistribution is strictly prohibited.
+======================================================================
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<title>Gaia Lake Bungalow — Assets &amp; Inventory Manager</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- Google Identity Services (OAuth2) + Google API Client, used by the Cloud Connection
+     Workspace in Settings for the optional Google Drive live-sync feature. -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js" async defer></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --theme-color: #4c9d38;
+    --theme-color-dark: #3b7a2c;
+    --theme-color-light: #edf5eb;
+    --ink: #21261f;
+    --paper: #F7F5EF;
+    --sidebar-bg: #1c2128;
+    --sidebar-text: #F3F1E7;
+    --sidebar-text-muted: rgba(243,241,231,0.60);
+    --sidebar-hover: rgba(255,255,255,0.08);
+    --sidebar-border: rgba(255,255,255,0.10);
+  }
+  html,body{ background:var(--paper); font-family:'Inter',system-ui,sans-serif; color:var(--ink); }
+  @media (min-width:1024px){
+    html,body{ height:100%; overflow:hidden; }
+  }
+  .font-display{ font-family:'Fraunces',serif; }
+  .font-mono{ font-family:'JetBrains Mono',monospace; }
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb{ background:#d8d3c4; border-radius:4px; }
+  .theme-bg{ background-color:var(--theme-color); }
+  .theme-bg:hover{ background-color:var(--theme-color-dark); }
+  .theme-text{ color:var(--theme-color); }
+  .theme-border{ border-color:var(--theme-color); }
+  .theme-tint{ background-color:var(--theme-color-light); }
+  .nav-active{ background-color:var(--theme-color); color:#fff; }
+  input:focus, select:focus, textarea:focus, button:focus-visible{
+    outline:2px solid var(--theme-color); outline-offset:1px;
+  }
+  .badge-usable{ background:#DCFCE7; color:#166534; }
+  .badge-damaged{ background:#FFFF00; color:#5c4d00; }
+  .badge-repair{ background:#FF8000; color:#ffffff; }
+  .badge-discarded{ background:#FEE2E2; color:#991B1B; }
+  .badge-missing{ background:#E5E7EB; color:#374151; }
+  #a4-preview{ width:210mm; min-height:297mm; box-shadow:0 4px 24px rgba(0,0,0,0.12); }
+  @media (max-width:1024px){ #a4-preview{ width:100%; min-height:auto; } }
+  @media print{
+    body *{ visibility:hidden; }
+    #print-root, #print-root *{ visibility:visible; }
+    #print-root{ position:absolute; top:0; left:0; width:100%; }
+    .no-print{ display:none !important; }
+  }
+  .modal-backdrop{ background:rgba(20,20,15,0.55); backdrop-filter: blur(2px); }
+  .scroll-thin{ scrollbar-width: thin; }
+  .grip-dot{ width:6px; height:6px; border-radius:9999px; }
+
+  /* Sidebar / menu bar theming — independent of light/dark mode below */
+  .sidebar-panel{ background:var(--sidebar-bg); color:var(--sidebar-text); }
+  .sidebar-border{ border-color:var(--sidebar-border) !important; }
+  .sidebar-muted{ color:var(--sidebar-text-muted); }
+  .sidebar-item{ color:var(--sidebar-text-muted); }
+  .sidebar-item:hover{ background:var(--sidebar-hover); color:var(--sidebar-text); }
+
+  /* App-wide dark mode — scoped to #shell only, so #print-root (used for
+     print/PDF output) is never affected regardless of the active mode. */
+  #shell.dark{ background:#14171b; color:#EDEAE0; }
+  #shell.dark [class*="bg-white"]{ background-color:#1c2027 !important; }
+  #shell.dark [class*="border-[#E7E2D3]"]{ border-color:#2b2f38 !important; }
+  #shell.dark [class*="border-[#E2DFD3]"]{ border-color:#333844 !important; }
+  #shell.dark [class*="border-[#EFEBDD]"]{ border-color:#2b2f38 !important; }
+  #shell.dark [class*="border-[#F1EEE3]"]{ border-color:#2b2f38 !important; }
+  #shell.dark [class*="border-[#F5F2E8]"]{ border-color:#262a32 !important; }
+  #shell.dark [class*="border-[#DCD7C6]"]{ border-color:#3a3f4a !important; }
+  #shell.dark [class*="bg-[#F1EEE3]"]{ background-color:#242832 !important; }
+  #shell.dark [class*="bg-[#FAF8F1]"]{ background-color:#20242c !important; }
+  #shell.dark [class*="bg-[#F7F5EF]"]{ background-color:#1a1d23 !important; }
+  #shell.dark [class*="text-[#8a8471]"]{ color:#9a9689 !important; }
+  #shell.dark [class*="text-[#a89f85]"]{ color:#8b8779 !important; }
+  #shell.dark [class*="text-[#635e4d]"]{ color:#b7b3a4 !important; }
+  #shell.dark [class*="text-[#4b4736]"]{ color:#cfcbbc !important; }
+  #shell.dark [class*="text-[#c9c3ac]"]{ color:#6b6f78 !important; }
+  #shell.dark [class*="text-[#21261f]"]{ color:#EDEAE0 !important; }
+  #shell.dark h1, #shell.dark h2, #shell.dark p, #shell.dark span, #shell.dark td, #shell.dark label{ color:inherit; }
+  #shell.dark .inp{ background:#1c2027 !important; border-color:#333844 !important; color:#EDEAE0 !important; }
+  #shell.dark ::placeholder{ color:#6b6f78 !important; }
+  #shell.dark .modal-backdrop ~ *, #shell.dark [class*="bg-[#F7F5EF]"]{ color:inherit; }
+
+  /* --- Cloud Sync (Google Drive Live-Sync) — additive only, does not alter
+     any existing layout/theme rules above. --- */
+  .cloud-dot{ width:7px; height:7px; border-radius:9999px; display:inline-block; flex-shrink:0; }
+  .cloud-dot.on{ background:#22c55e; box-shadow:0 0 0 2px rgba(34,197,94,0.25); }
+  .cloud-dot.off{ background:#9ca3af; }
+  .cloud-dot.busy{ background:#f59e0b; animation:cloudPulse 1s ease-in-out infinite; }
+  @keyframes cloudPulse{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
+  .cloud-signin-btn{ background:var(--theme-color); color:#fff; }
+  .cloud-signin-btn:hover{ background:var(--theme-color-dark); }
+  #cloud-offline-banner{ background:#FEF3C7; color:#7c5e10; border:1px solid #FDE68A; }
+  #shell.dark #cloud-offline-banner{ background:#3a2f10; color:#fbd88a; border-color:#5c4a17; }
+</style>
+</head>
+<body class="min-h-screen lg:h-screen lg:overflow-hidden">
+
+
+<div id="shell" class="lg:h-screen lg:flex lg:flex-col lg:overflow-hidden">
+<div id="app" class="flex flex-col lg:flex-row lg:flex-1 lg:min-h-0">
+
+  <!-- ===================== SIDEBAR (desktop) ===================== -->
+  <aside class="hidden lg:flex lg:flex-col w-64 shrink-0 lg:h-full sidebar-panel border-r sidebar-border scroll-thin overflow-y-auto no-print">
+    <div class="p-4 border-b sidebar-border flex items-center gap-3">
+      <div id="sidebar-logo-wrap" class="w-9 h-9 rounded-lg theme-bg flex items-center justify-center text-white font-display font-semibold text-lg overflow-hidden shrink-0">G</div>
+      <div class="min-w-0">
+        <p class="font-display font-semibold text-[14px] leading-tight truncate" id="sidebar-company-name">Gaia Lake Bungalow</p>
+        <p class="text-[10.5px] sidebar-muted font-mono">Asset &amp; Inventory Manager</p>
+      </div>
+    </div>
+    <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
+    <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
+    <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
+      <span id="sidebar-version">v1.4</span>
+      <span class="grip-dot theme-bg"></span>
+    </div>
+  </aside>
+
+  <!-- ===================== MOBILE HEADER ===================== -->
+  <header class="lg:hidden sticky top-0 z-30 bg-white border-b border-[#E7E2D3] px-4 py-3 flex items-center justify-between no-print">
+    <button id="mobile-menu-btn" class="p-2 -ml-2 rounded-lg hover:bg-[#F1EEE3]" aria-label="Menu">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+    <p class="font-display font-semibold text-[15px]" id="mobile-title">Dashboard</p>
+    <button id="mobile-new-btn" class="p-2 -mr-2 rounded-lg theme-bg text-white" aria-label="New Item">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+  </header>
+
+  <!-- ===================== MOBILE SLIDE-OVER MENU ===================== -->
+  <div id="mobile-menu" class="lg:hidden fixed inset-0 z-40 hidden no-print">
+    <div id="mobile-menu-backdrop" class="absolute inset-0 modal-backdrop"></div>
+    <div class="absolute left-0 top-0 bottom-0 w-72 sidebar-panel p-4 overflow-y-auto scroll-thin">
+      <div class="flex items-center justify-between mb-4">
+        <p class="font-display font-semibold">Menu</p>
+        <button id="mobile-menu-close" class="p-1"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+      </div>
+      <nav id="mobile-nav" class="space-y-1"></nav>
+      <div class="pt-3 mt-2 border-t sidebar-border" id="cloud-sidebar-slot-mobile"></div>
+    </div>
+  </div>
+
+  <!-- ===================== MAIN ===================== -->
+  <main class="flex-1 min-w-0 lg:h-full lg:overflow-y-auto lg:min-h-0 scroll-thin">
+    <div class="max-w-[1400px] mx-auto p-4 lg:p-5">
+      <div id="cloud-offline-banner" class="hidden no-print items-center gap-2 text-[12.5px] font-medium rounded-xl px-4 py-2.5 mb-4">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M12 9v4M12 17h.01M10.29 3.86l-8.18 14.18A2 2 0 003.82 21h16.36a2 2 0 001.71-2.96L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+        <span>Running Offline: Sign In to sync live database data.</span>
+      </div>
+      <div id="view-root"></div>
+    </div>
+  </main>
+
+  <!-- ===================== MOBILE BOTTOM NAV ===================== -->
+  <nav class="lg:hidden fixed bottom-0 left-0 right-0 z-20 bg-white border-t border-[#E7E2D3] flex items-center justify-around py-2 no-print">
+    <button data-view="dashboard" class="bottom-nav-btn flex flex-col items-center gap-0.5 px-3 py-1 text-[10px] font-medium">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>Home
+    </button>
+    <button data-view="locations" class="bottom-nav-btn flex flex-col items-center gap-0.5 px-3 py-1 text-[10px] font-medium">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h18"/></svg>Locations
+    </button>
+    <button data-view="history" class="bottom-nav-btn flex flex-col items-center gap-0.5 px-3 py-1 text-[10px] font-medium">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3M21 12a9 9 0 11-9-9"/></svg>History
+    </button>
+    <button data-view="settings" class="bottom-nav-btn flex flex-col items-center gap-0.5 px-3 py-1 text-[10px] font-medium">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.34 1.87l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.7 1.7 0 00-1.87-.34 1.7 1.7 0 00-1 1.55V21a2 2 0 01-4 0v-.09A1.7 1.7 0 009 19.4a1.7 1.7 0 00-1.87.34l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.7 1.7 0 004.6 15a1.7 1.7 0 00-1.55-1H3a2 2 0 010-4h.09A1.7 1.7 0 004.6 9a1.7 1.7 0 00-.34-1.87l-.06-.06a2 2 0 112.83-2.83l.06.06A1.7 1.7 0 009 4.6a1.7 1.7 0 001-1.55V3a2 2 0 014 0v.09a1.7 1.7 0 001 1.55 1.7 1.7 0 001.87-.34l.06-.06a2 2 0 112.83 2.83l-.06.06A1.7 1.7 0 0019.4 9a1.7 1.7 0 001.55 1H21a2 2 0 010 4h-.09a1.7 1.7 0 00-1.51 1z"/></svg>Settings
+    </button>
+  </nav>
+</div>
+
+<!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
+<footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v1.4</span> | Copyright © 2026. All rights reserved.
+</footer>
+</div>
+
+<!-- ===================== TOASTS ===================== -->
+<div id="toast-root" class="fixed bottom-20 lg:bottom-6 right-4 z-[60] space-y-2 no-print"></div>
+
+<!-- ===================== CONFIRM DIALOG ===================== -->
+<div id="confirm-dialog" class="fixed inset-0 z-50 hidden items-center justify-center modal-backdrop no-print">
+  <div class="bg-white rounded-2xl p-6 max-w-sm w-[90%] shadow-xl">
+    <p class="font-display font-semibold text-lg mb-2" id="confirm-title">Are you sure?</p>
+    <p class="text-sm text-[#635e4d] mb-5" id="confirm-body">This action cannot be undone.</p>
+    <div class="flex gap-3 justify-end">
+      <button id="confirm-cancel" class="px-4 py-2 rounded-lg border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">Cancel</button>
+      <button id="confirm-ok" class="px-4 py-2 rounded-lg theme-bg text-white text-sm font-medium">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================================
+   GAIA LAKE BUNGALOW — ASSETS & INVENTORY MANAGER
+   Vanilla JS + IndexedDB, self-contained single-file application.
+   ============================================================================ */
+(function(){
+"use strict";
+
+/* ---------------------------------------------------------------------------
+   0. STATIC CONFIG — locations, categories, conditions
+--------------------------------------------------------------------------- */
+const LOCATIONS = [
+  { code:"R1",  name:"Room 1",         zone:"Guest Areas" },
+  { code:"R2",  name:"Room 2",         zone:"Guest Areas" },
+  { code:"R3",  name:"Room 3",         zone:"Guest Areas" },
+  { code:"R4",  name:"Room 4",         zone:"Guest Areas" },
+  { code:"POOL",name:"Pool",           zone:"Guest Areas" },
+  { code:"GDN", name:"Garden",         zone:"Guest Areas" },
+  { code:"LBY", name:"Lobby",          zone:"Guest Areas" },
+  { code:"GPT", name:"Guest Pantry",   zone:"Guest Areas" },
+  { code:"KIT", name:"Main Kitchen",   zone:"Operations" },
+  { code:"SR1", name:"Store Room 1",   zone:"Operations" },
+  { code:"SR2", name:"Store Room 2",   zone:"Operations" },
+  { code:"SR3", name:"Store Room 3",   zone:"Operations" },
+  { code:"GEN", name:"Generator Room", zone:"Operations" },
+  { code:"MGR", name:"Manager Room",   zone:"Staff & Management" },
+  { code:"ST1", name:"Staff room 1",   zone:"Staff & Management" },
+  { code:"ST2", name:"Staff room 2",   zone:"Staff & Management" },
+];
+const ZONES = ["Guest Areas","Operations","Staff & Management"];
+
+let CATEGORIES = [
+  { code:"ELE", name:"Electronics" },
+  { code:"FUR", name:"Furniture" },
+  { code:"LIN", name:"Linen" },
+  { code:"UTL", name:"Utilities" },
+  { code:"APP", name:"Appliances" },
+];
+const DEFAULT_CATEGORIES = CATEGORIES.map(c=>Object.assign({},c));
+
+/* Smart Asset Codes — derive a 3-letter code from a custom category name,
+   falling back to a numbered suffix if the derived code already exists. */
+function deriveCategoryCode(name){
+  let base = (name||'').replace(/[^a-zA-Z]/g,'').slice(0,3).toUpperCase();
+  if(base.length < 2) base = (base + 'XXX').slice(0,3);
+  let code = base, n = 1;
+  while(CATEGORIES.some(c=>c.code===code)){
+    n++; code = (base.slice(0,2) + n).slice(0,3);
+  }
+  return code;
+}
+
+const CONDITIONS = [
+  { key:"Usable",    cls:"badge-usable",    dot:"#16a34a" },
+  { key:"Damaged",   cls:"badge-damaged",   dot:"#FFFF00" },
+  { key:"In Repair", cls:"badge-repair",    dot:"#FF8000" },
+  { key:"Discarded", cls:"badge-discarded", dot:"#dc2626" },
+  { key:"Missing",   cls:"badge-missing",   dot:"#6b7280" },
+];
+
+function locByCode(c){ return LOCATIONS.find(l=>l.code===c); }
+function locByName(n){ return LOCATIONS.find(l=>l.name===n); }
+function catByCode(c){ return CATEGORIES.find(x=>x.code===c); }
+function catByName(n){ return CATEGORIES.find(x=>x.name===n); }
+function condMeta(k){ return CONDITIONS.find(c=>c.key===k) || CONDITIONS[0]; }
+
+/* ---------------------------------------------------------------------------
+   1. INDEXEDDB LAYER
+--------------------------------------------------------------------------- */
+const DB_NAME = "gaia_lake_assets_db";
+const DB_VERSION = 1;
+let db = null;
+
+function openDB(){
+  return new Promise((resolve,reject)=>{
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e)=>{
+      const _db = e.target.result;
+      if(!_db.objectStoreNames.contains("assets")){
+        const s = _db.createObjectStore("assets", { keyPath:"id" });
+        s.createIndex("assetNumber","assetNumber",{unique:false});
+        s.createIndex("location","location",{unique:false});
+        s.createIndex("category","category",{unique:false});
+        s.createIndex("condition","condition",{unique:false});
+      }
+      if(!_db.objectStoreNames.contains("history")){
+        const h = _db.createObjectStore("history", { keyPath:"id" });
+        h.createIndex("assetNumber","assetNumber",{unique:false});
+        h.createIndex("date","date",{unique:false});
+      }
+      if(!_db.objectStoreNames.contains("settings")){
+        _db.createObjectStore("settings", { keyPath:"key" });
+      }
+      if(!_db.objectStoreNames.contains("meta")){
+        _db.createObjectStore("meta", { keyPath:"key" });
+      }
+    };
+    req.onsuccess = (e)=>{ db = e.target.result; resolve(db); };
+    req.onerror = (e)=> reject(e.target.error);
+  });
+}
+
+function tx(storeName, mode){
+  return db.transaction(storeName, mode).objectStore(storeName);
+}
+function idbGetAll(storeName){
+  return new Promise((resolve,reject)=>{
+    const req = tx(storeName,"readonly").getAll();
+    req.onsuccess = ()=>resolve(req.result || []);
+    req.onerror = (e)=>reject(e.target.error);
+  });
+}
+function idbGet(storeName,key){
+  return new Promise((resolve,reject)=>{
+    const req = tx(storeName,"readonly").get(key);
+    req.onsuccess = ()=>resolve(req.result || null);
+    req.onerror = (e)=>reject(e.target.error);
+  });
+}
+function idbPut(storeName,value){
+  return new Promise((resolve,reject)=>{
+    const req = tx(storeName,"readwrite").put(value);
+    req.onsuccess = ()=>{ resolve(value); scheduleCloudPush(); };
+    req.onerror = (e)=>reject(e.target.error);
+  });
+}
+function idbDelete(storeName,key){
+  return new Promise((resolve,reject)=>{
+    const req = tx(storeName,"readwrite").delete(key);
+    req.onsuccess = ()=>{ resolve(true); scheduleCloudPush(); };
+    req.onerror = (e)=>reject(e.target.error);
+  });
+}
+function idbClear(storeName){
+  return new Promise((resolve,reject)=>{
+    const req = tx(storeName,"readwrite").clear();
+    req.onsuccess = ()=>{ resolve(true); scheduleCloudPush(); };
+    req.onerror = (e)=>reject(e.target.error);
+  });
+}
+
+/* ---------------------------------------------------------------------------
+   2. UTILITIES
+--------------------------------------------------------------------------- */
+function uuid(){
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c=>{
+    const r = Math.random()*16|0, v = c==='x'?r:(r&0x3|0x8);
+    return v.toString(16);
+  });
+}
+function nowISO(){ return new Date().toISOString(); }
+function fmtDate(iso){
+  if(!iso) return "—";
+  const d = new Date(iso);
+  if(isNaN(d)) return iso;
+  return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+}
+function fmtDateTime(d){
+  return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) + ' at ' +
+         d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+}
+function currencySymbol(){
+  return (state.settings.currency === 'LKR') ? 'Rs.' : '$';
+}
+function fmtMoney(n){
+  n = Number(n)||0;
+  return currencySymbol() + ' ' + n.toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function escapeHtml(str){
+  if(str===undefined || str===null) return '';
+  return String(str).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function debounce(fn, ms){
+  let t; return function(...args){ clearTimeout(t); t=setTimeout(()=>fn.apply(this,args), ms); };
+}
+
+function showToast(msg, type){
+  type = type || 'success';
+  const root = document.getElementById('toast-root');
+  const el = document.createElement('div');
+  const colors = { success:'bg-[#1F6B45]', error:'bg-[#B91C1C]', info:'bg-[#1F2937]' };
+  el.className = `${colors[type]||colors.success} text-white text-sm px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 min-w-[220px] animate-[fadeIn_.15s_ease]`;
+  el.innerHTML = `<span>${escapeHtml(msg)}</span>`;
+  root.appendChild(el);
+  setTimeout(()=>{ el.style.transition='opacity .3s'; el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, 2600);
+}
+
+let confirmResolver = null;
+function askConfirm(title, body){
+  document.getElementById('confirm-title').textContent = title;
+  document.getElementById('confirm-body').textContent = body;
+  const dlg = document.getElementById('confirm-dialog');
+  dlg.classList.remove('hidden'); dlg.classList.add('flex');
+  return new Promise((resolve)=>{ confirmResolver = resolve; });
+}
+document.getElementById('confirm-ok').addEventListener('click', ()=>{
+  document.getElementById('confirm-dialog').classList.add('hidden');
+  document.getElementById('confirm-dialog').classList.remove('flex');
+  if(confirmResolver) confirmResolver(true);
+});
+document.getElementById('confirm-cancel').addEventListener('click', ()=>{
+  document.getElementById('confirm-dialog').classList.add('hidden');
+  document.getElementById('confirm-dialog').classList.remove('flex');
+  if(confirmResolver) confirmResolver(false);
+});
+
+/* Google Drive share-link -> embeddable direct-view URL converter.
+   NOTE: Google Drive images only embed successfully when the file's sharing
+   is set to "Anyone with the link" (Viewer). Even then, Google's classic
+   "uc?export=view" endpoint frequently serves an HTML interstitial instead
+   of raw image bytes for many files, which silently breaks <img> tags. The
+   "thumbnail" endpoint is far more reliable for hotlinked embedding, so we
+   convert to that instead. */
+function convertImageUrl(url){
+  if(!url) return url;
+  url = url.trim();
+  const patterns = [
+    /https?:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/,
+    /https?:\/\/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/,
+    /https?:\/\/drive\.google\.com\/uc\?[^\s]*[?&]id=([a-zA-Z0-9_-]+)/,
+    /https?:\/\/drive\.google\.com\/thumbnail\?[^\s]*[?&]id=([a-zA-Z0-9_-]+)/,
+    /https?:\/\/drive\.usercontent\.google\.com\/download\?[^\s]*[?&]id=([a-zA-Z0-9_-]+)/,
+  ];
+  for(const re of patterns){
+    const m = url.match(re);
+    if(m && m[1]){
+      return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000`;
+    }
+  }
+  return url;
+}
+function isGoogleDriveUrl(url){
+  return !!(url && /drive\.google\.com|drive\.usercontent\.google\.com/.test(url));
+}
+
+/* Canvas compression for local uploads: max 400px, JPEG q=0.7 */
+function compressImageFile(file){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload = (e)=>{
+      const img = new Image();
+      img.onload = ()=>{
+        let { width, height } = img;
+        const MAX = 400;
+        if(width > height && width > MAX){ height = Math.round(height*(MAX/width)); width = MAX; }
+        else if(height >= width && height > MAX){ width = Math.round(width*(MAX/height)); height = MAX; }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.7));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ---------------------------------------------------------------------------
+   3. GLOBAL STATE
+--------------------------------------------------------------------------- */
+const state = {
+  view: 'dashboard',           // dashboard | location | editor | history | settings
+  activeLocation: null,
+  assets: [],                  // all line-items from IndexedDB
+  history: [],
+  settings: {
+    companyName:'Gaia Lake Bungalow', address:'Kandalama, Sri Lanka', phone:'', email:'', website:'',
+    currency:'LKR', logo:null, themeColor:'#4c9d38', sidebarColor:'#1c2128', darkMode:false
+  },
+  meta: { version:'1.0', changelog:[] },
+  editing: null,                // asset object currently in editor, or null (new)
+  editorBaseAssetNumber: null,  // when adding batch / splitting, the group we're working on
+  splitMode: false,
+  printSelection: { location:'all', sortBy:'name' },
+  navExpanded: {},
+  cloud: {
+    clientId:'', apiKey:'', folderId:'',           // from Cloud Connection Workspace
+    fileId:null,                                   // Drive file id of gaia_lake_inventory.json once known
+    connected:false, userEmail:null,
+    accessToken:null, tokenExpiresAt:0,
+    syncing:false, applyingRemote:false, lastSync:null, lastRemoteModified:null,
+    dirty:false,
+  },
+};
+
+function assetGroups(){
+  // group all line items by assetNumber
+  const map = {};
+  state.assets.forEach(a=>{
+    if(!map[a.assetNumber]) map[a.assetNumber] = [];
+    map[a.assetNumber].push(a);
+  });
+  return map;
+}
+function groupTotals(items){
+  const total = items.reduce((s,i)=>s+Number(i.qty||0),0);
+  const usable = items.filter(i=>i.condition==='Usable').reduce((s,i)=>s+Number(i.qty||0),0);
+  return { total, usable };
+}
+
+/* ---------------------------------------------------------------------------
+   4. ASSET NUMBER GENERATOR
+--------------------------------------------------------------------------- */
+async function nextAssetNumber(locationName, categoryName){
+  const loc = locByName(locationName), cat = catByName(categoryName);
+  if(!loc || !cat) return null;
+  const prefix = `${loc.code}-${cat.code}-`;
+  const counters = (await idbGet('meta','counters')) || { key:'counters', values:{} };
+  const cur = counters.values[prefix] || 0;
+  const next = cur + 1;
+  counters.values[prefix] = next;
+  await idbPut('meta', counters);
+  return prefix + String(next).padStart(3,'0');
+}
+async function peekAssetNumber(locationName, categoryName){
+  const loc = locByName(locationName), cat = catByName(categoryName);
+  if(!loc || !cat) return '—';
+  const prefix = `${loc.code}-${cat.code}-`;
+  const counters = (await idbGet('meta','counters')) || { key:'counters', values:{} };
+  const cur = (counters.values[prefix] || 0) + 1;
+  return prefix + String(cur).padStart(3,'0');
+}
+
+/* ---------------------------------------------------------------------------
+   5. HISTORY LOGGING
+--------------------------------------------------------------------------- */
+async function logHistory(action, item){
+  const entry = {
+    id: uuid(),
+    assetNumber: item.assetNumber,
+    itemName: item.name,
+    location: item.location,
+    category: item.category,
+    qty: item.qty,
+    condition: item.condition,
+    imageSrc: item.imageSrc || '',
+    notes: item.notes || '',
+    date: nowISO(),
+    action: action
+  };
+  await idbPut('history', entry);
+  state.history.unshift(entry);
+}
+
+/* ---------------------------------------------------------------------------
+   6. VERSION / CHANGELOG ENGINE
+--------------------------------------------------------------------------- */
+const DEFAULT_CHANGELOG = [
+  { version:'1.4', date: nowISO(), type:'major', summary:'Dashboard rebuild, dark mode, and customizable sidebar color.',
+    detail:'Set Damaged to #FFFF00 and In Repair to #FF8000 across badges and charts. Added a search bar to the Dashboard with a live results dropdown. Added an Information section with Last Updated Asset, Last New Item Received, and a Month/Year condition summary card titled "[Month/Year] Summary of Assets and Inventory" — screenshot-ready with its own Download PNG button for sharing reports. Compacted the All-Time condition breakdown into a single chip row and removed the redundant Locations grid (already covered by the sidebar) so the Overview fits one screen without scrolling on desktop. Added a dark, customizable sidebar (color picker in Settings) and a separate app-wide Dark Mode / Light Mode toggle. Fixed a new batch entry incorrectly inheriting its original group\'s creation date.' },
+  { version:'1.3', date: nowISO(), type:'major', summary:'Image rendering fix, smarter split workflow, dedicated Print & Export page.',
+    detail:'Fixed a bug where a failed item image would corrupt the card markup and render as garbled text instead of a fallback icon. Fixed the Split Item Condition Cancel button, which was silently unbound when a second "back" control existed on the page. Added an explicit close (X) button to the editor header. Reworked the split workflow so every item starts as Usable by default — entering a quantity for any other condition now auto-deducts from Usable, which always equals the group total, with over-allocation blocked. Unified the History table to a single consistent text size and tighter row spacing. Moved Print & PDF Export out of Settings into its own sidebar page, with a live manifest preview table and a View PDF button that opens a full preview in a new tab before downloading.' },
+  { version:'1.2', date: nowISO(), type:'major', summary:'One-screen layout, simplified navigation, and reliability fixes.',
+    detail:'Reworked the app shell to fit a single desktop viewport with no page-level scrolling. Removed the live A4 preview from the item editor so New Item / Edit Item forms are fully visible on one screen. Collapsed the sidebar into Dashboard, History, three expandable zone groups (Guest Areas, Operations, Staff & Management), and Settings. Switched the Google Drive image converter to the more reliable thumbnail endpoint with clearer sharing guidance and broken-link detection. Set default currency to LKR (Rs.) and default theme color to #4C9D38. Added a Category column to the History table.' },
+  { version:'1.1', date: nowISO(), type:'minor', summary:'Dynamic categories & smart asset codes.',
+    detail:'Categories are no longer fixed: any category added on the Settings page now appears instantly in the New Item form dropdown. The asset numbering engine derives a 3-letter code from the first three letters of a custom category (e.g. Glassware becomes GLA, producing codes like LBY-GLA-001), with automatic de-duplication if a derived code collides with an existing one.' },
+  { version:'1.0', date: nowISO(), type:'major', summary:'Initial production release.',
+    detail:'Launched the full Boutique Hotel Asset & Inventory Management App: 16-location inventory tracking, dual-image engine (local upload + Google Drive URL converter), split-condition workflow with live Total/Usable quantity calculators, live A4 print preview, history portal, configurable branding & theme color, JSON import/export, and PDF/print export engine.' }
+];
+
+async function initMeta(){
+  let m = await idbGet('meta','version');
+  if(!m){
+    m = { key:'version', version:'1.4', changelog: DEFAULT_CHANGELOG };
+    await idbPut('meta', m);
+  }
+  state.meta.version = m.version;
+  state.meta.changelog = m.changelog || DEFAULT_CHANGELOG;
+  document.getElementById('sidebar-version').textContent = 'v'+state.meta.version;
+  document.getElementById('footer-version').textContent = 'v'+state.meta.version;
+}
+async function bumpVersion(type, summary, detail){
+  let [maj,min] = state.meta.version.split('.').map(Number);
+  if(type==='major'){ maj += 1; min = 0; } else { min += 1; }
+  const newVer = `${maj}.${min}`;
+  state.meta.version = newVer;
+  state.meta.changelog.unshift({ version:newVer, date: nowISO(), type, summary, detail: detail||summary });
+  await idbPut('meta', { key:'version', version:newVer, changelog: state.meta.changelog });
+  document.getElementById('sidebar-version').textContent = 'v'+newVer;
+  document.getElementById('footer-version').textContent = 'v'+newVer;
+}
+function downloadWhatsNew(){
+  let out = `GAIA LAKE BUNGALOW — ASSET & INVENTORY MANAGER\nSoftware Change Audit Log\nGenerated: ${fmtDateTime(new Date())}\n`;
+  out += `Current Version: v${state.meta.version}\n`;
+  out += '='.repeat(70) + '\n\n';
+  state.meta.changelog.forEach(c=>{
+    out += `v${c.version}  [${c.type.toUpperCase()}]  —  ${fmtDate(c.date)}\n`;
+    out += `Summary: ${c.summary}\n`;
+    if(c.detail && c.detail !== c.summary){ out += `Detail: ${c.detail}\n`; }
+    out += '-'.repeat(70) + '\n';
+  });
+  const blob = new Blob([out], { type:'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'WhatsNew.txt';
+  a.click();
+}
+
+/* ---------------------------------------------------------------------------
+   7. SETTINGS / THEME
+--------------------------------------------------------------------------- */
+async function loadCategories(){
+  const rec = await idbGet('meta','categories');
+  if(rec && Array.isArray(rec.list) && rec.list.length){
+    CATEGORIES = rec.list;
+  } else {
+    await idbPut('meta', { key:'categories', list: CATEGORIES });
+  }
+}
+async function saveCategories(){
+  await idbPut('meta', { key:'categories', list: CATEGORIES });
+}
+
+async function loadSettings(){
+  const s = await idbGet('settings','main');
+  if(s){ state.settings = Object.assign(state.settings, s); }
+  else { await idbPut('settings', Object.assign({key:'main'}, state.settings)); }
+  applyTheme(state.settings.themeColor);
+  applySidebarColor(state.settings.sidebarColor);
+  applyDarkMode(!!state.settings.darkMode);
+  document.getElementById('sidebar-company-name').textContent = state.settings.companyName || 'Gaia Lake Bungalow';
+  renderLogo();
+}
+async function saveSettingsToDB(){
+  const payload = Object.assign({ key:'main' }, state.settings);
+  await idbPut('settings', payload);
+}
+function hexToRgb(hex){
+  const m = hex.replace('#','').match(/.{1,2}/g);
+  if(!m) return [47,107,79];
+  return m.map(h=>parseInt(h,16));
+}
+function shade(hex, amt){
+  const [r,g,b] = hexToRgb(hex);
+  const f = c=>Math.max(0, Math.min(255, Math.round(c*(1+amt))));
+  return '#' + [f(r),f(g),f(b)].map(c=>c.toString(16).padStart(2,'0')).join('');
+}
+function tint(hex, amt){
+  const [r,g,b] = hexToRgb(hex);
+  const f = c=>Math.round(c + (255-c)*amt);
+  return '#' + [f(r),f(g),f(b)].map(c=>c.toString(16).padStart(2,'0')).join('');
+}
+function applyTheme(hex){
+  if(!/^#([0-9a-fA-F]{6})$/.test(hex)) return;
+  document.documentElement.style.setProperty('--theme-color', hex);
+  document.documentElement.style.setProperty('--theme-color-dark', shade(hex,-0.22));
+  document.documentElement.style.setProperty('--theme-color-light', tint(hex,0.90));
+}
+function relLuminance(hex){
+  const rgb = hexToRgb(hex).map(c=>{
+    c = c/255;
+    return c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4);
+  });
+  return 0.2126*rgb[0] + 0.7152*rgb[1] + 0.0722*rgb[2];
+}
+function applySidebarColor(hex){
+  if(!/^#([0-9a-fA-F]{6})$/.test(hex)) return;
+  const isDark = relLuminance(hex) < 0.45;
+  const root = document.documentElement.style;
+  root.setProperty('--sidebar-bg', hex);
+  root.setProperty('--sidebar-text', isDark ? '#F3F1E7' : '#21261f');
+  root.setProperty('--sidebar-text-muted', isDark ? 'rgba(243,241,231,0.60)' : 'rgba(33,38,31,0.55)');
+  root.setProperty('--sidebar-hover', isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)');
+  root.setProperty('--sidebar-border', isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)');
+}
+function applyDarkMode(isDark){
+  const shell = document.getElementById('shell');
+  if(shell) shell.classList.toggle('dark', !!isDark);
+}
+function renderLogo(){
+  const wrap = document.getElementById('sidebar-logo-wrap');
+  if(state.settings.logo){
+    wrap.innerHTML = `<img src="${state.settings.logo}" class="w-full h-full object-cover" alt="logo"/>`;
+  } else {
+    wrap.innerHTML = (state.settings.companyName||'G').charAt(0).toUpperCase();
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   8. NAVIGATION / SIDEBAR RENDER
+--------------------------------------------------------------------------- */
+function navItemHtml(view, label, iconSvg, extraAttr){
+  const active = (state.view===view) || (view.startsWith('loc:') && state.view==='location' && state.activeLocation===view.split(':')[1]);
+  return `<button ${extraAttr||''} data-nav="${view}" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13.5px] font-medium transition ${active?'nav-active':'sidebar-item'}">${iconSvg||''}<span class="truncate">${label}</span></button>`;
+}
+
+function buildNavHtml(){
+  let html = '';
+  html += navItemHtml('dashboard','Dashboard', iconHome());
+  html += navItemHtml('history','History', iconHistory());
+  html += navItemHtml('print','Print & Export', iconPrinter());
+  ZONES.forEach(zone=>{
+    const zoneLocs = LOCATIONS.filter(l=>l.zone===zone);
+    const isActiveZone = state.view==='location' && zoneLocs.some(l=>l.name===state.activeLocation);
+    const expanded = (zone in state.navExpanded) ? state.navExpanded[zone] : isActiveZone;
+    const zoneQty = zoneLocs.reduce((s,l)=> s + state.assets.filter(a=>a.location===l.name).length, 0);
+    html += `<button data-zone-toggle="${zone}" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13.5px] font-medium sidebar-item transition">
+      ${iconFolder()}<span class="flex-1 text-left truncate">${zone}</span>
+      <span class="text-[10px] font-mono sidebar-muted">${zoneQty||''}</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 transition-transform ${expanded?'rotate-90':''}"><path d="M9 18l6-6-6-6"/></svg>
+    </button>`;
+    if(expanded){
+      html += `<div class="pl-4 space-y-0.5 pb-1">`;
+      zoneLocs.forEach(l=>{
+        const items = state.assets.filter(a=>a.location===l.name);
+        const active = state.view==='location' && state.activeLocation===l.name;
+        html += `<button data-nav="loc:${l.name}" class="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] transition ${active?'nav-active':'sidebar-item'}">
+          <span class="w-1.5 h-1.5 rounded-full shrink-0 ${active?'bg-white':'bg-[#d8d3c0]'}"></span>
+          <span class="truncate flex-1 text-left">${l.name}</span>
+          <span class="text-[10px] font-mono ${active?'text-white/80':'sidebar-muted'}">${items.length||''}</span>
+        </button>`;
+      });
+      html += `</div>`;
+    }
+  });
+  html += `<div class="pt-2"></div>`;
+  html += navItemHtml('settings','Settings', iconSettings());
+  return html;
+}
+function iconHome(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>`; }
+function iconHistory(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M12 8v4l3 3M21 12a9 9 0 11-9-9"/></svg>`; }
+function iconSettings(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.34 1.87M4.6 9a1.7 1.7 0 00-.34-1.87"/></svg>`; }
+function iconFolder(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M3 7a2 2 0 012-2h4l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>`; }
+function iconDot(){ return `<span class="w-1.5 h-1.5 rounded-full bg-[#d8d3c0] shrink-0"></span>`; }
+
+function renderNav(){
+  const html = buildNavHtml();
+  document.getElementById('sidebar-nav').innerHTML = html;
+  document.getElementById('mobile-nav').innerHTML = html;
+  document.querySelectorAll('[data-zone-toggle]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const zone = btn.getAttribute('data-zone-toggle');
+      const zoneLocs = LOCATIONS.filter(l=>l.zone===zone);
+      const isActiveZone = state.view==='location' && zoneLocs.some(l=>l.name===state.activeLocation);
+      const current = (zone in state.navExpanded) ? state.navExpanded[zone] : isActiveZone;
+      state.navExpanded[zone] = !current;
+      renderNav();
+    });
+  });
+  document.querySelectorAll('[data-nav]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const v = btn.getAttribute('data-nav');
+      closeMobileMenu();
+      if(v.startsWith('loc:')) navigateTo('location', v.split(':')[1]);
+      else navigateTo(v);
+    });
+  });
+  document.querySelectorAll('.bottom-nav-btn').forEach(btn=>{
+    btn.classList.toggle('theme-text', btn.getAttribute('data-view')===mapViewToBottom());
+    btn.addEventListener('click', ()=>navigateTo(btn.getAttribute('data-view')));
+  });
+}
+function mapViewToBottom(){
+  if(state.view==='location') return 'locations';
+  if(['dashboard','history','settings'].includes(state.view)) return state.view;
+  return 'dashboard';
+}
+function navigateTo(view, loc){
+  state.view = view === 'locations' ? 'dashboard' : view;
+  if(view==='locations') state.view='dashboard';
+  if(view==='location'){ state.view='location'; state.activeLocation=loc; }
+  state.editing = null; state.splitMode=false;
+  render();
+}
+function openMobileMenu(){ document.getElementById('mobile-menu').classList.remove('hidden'); document.getElementById('mobile-menu').classList.add('flex'); }
+function closeMobileMenu(){ document.getElementById('mobile-menu').classList.add('hidden'); document.getElementById('mobile-menu').classList.remove('flex'); }
+document.getElementById('mobile-menu-btn').addEventListener('click', openMobileMenu);
+document.getElementById('mobile-menu-close').addEventListener('click', closeMobileMenu);
+document.getElementById('mobile-menu-backdrop').addEventListener('click', closeMobileMenu);
+document.getElementById('mobile-new-btn').addEventListener('click', ()=>openEditor(null));
+document.addEventListener('click', (ev)=>{
+  const box = document.getElementById('dash-search-results');
+  const input = document.getElementById('dash-search');
+  if(!box || !input) return;
+  if(!box.contains(ev.target) && ev.target!==input){ box.classList.add('hidden'); }
+});
+
+/* ---------------------------------------------------------------------------
+   9. MASTER RENDER
+--------------------------------------------------------------------------- */
+function render(){
+  renderNav();
+  document.getElementById('mobile-title').textContent = viewTitle();
+  const root = document.getElementById('view-root');
+  if(state.view==='dashboard') root.innerHTML = renderDashboard();
+  else if(state.view==='location') root.innerHTML = renderLocationView();
+  else if(state.view==='editor') root.innerHTML = renderEditorView();
+  else if(state.view==='history') root.innerHTML = renderHistoryView();
+  else if(state.view==='print') root.innerHTML = renderPrintView();
+  else if(state.view==='settings') root.innerHTML = renderSettingsView();
+  bindViewEvents();
+  updateA4Preview();
+  renderCloudSidebar();
+  updateCloudBanner();
+}
+function viewTitle(){
+  if(state.view==='dashboard') return 'Dashboard';
+  if(state.view==='location') return state.activeLocation;
+  if(state.view==='editor') return state.editing ? 'Edit Item' : 'New Item';
+  if(state.view==='history') return 'History';
+  if(state.view==='print') return 'Print & Export';
+  if(state.view==='settings') return 'Settings';
+  return '';
+}
+
+/* ---------------------------------------------------------------------------
+   10. DASHBOARD VIEW
+--------------------------------------------------------------------------- */
+function lastUpdatedAsset(){
+  if(!state.assets.length) return null;
+  return state.assets.reduce((latest, a)=> (!latest || new Date(a.lastUpdated) > new Date(latest.lastUpdated)) ? a : latest, null);
+}
+function lastReceivedEntry(){
+  const received = state.history.filter(h=> h.action==='created' || h.action==='batch added');
+  if(!received.length) return null;
+  return received.reduce((latest, h)=> (!latest || new Date(h.date) > new Date(latest.date)) ? h : latest, null);
+}
+function periodConditionSummary(period){
+  const now = new Date();
+  const inPeriod = (iso)=>{
+    const d = new Date(iso);
+    if(isNaN(d)) return false;
+    if(period==='year') return d.getFullYear()===now.getFullYear();
+    return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth();
+  };
+  const counts = {}; CONDITIONS.forEach(c=>counts[c.key]=0);
+  let touched = 0;
+  state.assets.forEach(a=>{
+    if(inPeriod(a.lastUpdated)){ counts[a.condition] = (counts[a.condition]||0) + Number(a.qty||0); touched++; }
+  });
+  return { counts, touched };
+}
+function periodLabel(period){
+  const now = new Date();
+  return period==='year' ? String(now.getFullYear()) : now.toLocaleDateString('en-GB',{month:'long', year:'numeric'});
+}
+
+function renderDashboard(){
+  const groups = assetGroups();
+  const groupCount = Object.keys(groups).length;
+  const totalQty = state.assets.reduce((s,a)=>s+Number(a.qty||0),0);
+  const usableQty = state.assets.filter(a=>a.condition==='Usable').reduce((s,a)=>s+Number(a.qty||0),0);
+  const totalValue = state.assets.reduce((s,a)=>s+ (Number(a.qty||0) * Number(a.purchasePrice||0)),0);
+
+  const condCounts = {};
+  CONDITIONS.forEach(c=>condCounts[c.key]=0);
+  state.assets.forEach(a=>{ condCounts[a.condition] = (condCounts[a.condition]||0) + Number(a.qty||0); });
+
+  const statCard = (label, value, sub)=>`
+    <div class="bg-white rounded-2xl border border-[#E7E2D3] p-4">
+      <p class="text-[10.5px] uppercase tracking-wider font-semibold text-[#a89f85]">${label}</p>
+      <p class="font-display text-2xl font-semibold mt-0.5">${value}</p>
+      ${sub?`<p class="text-[11px] text-[#8a8471] mt-0.5">${sub}</p>`:''}
+    </div>`;
+
+  const lastUpdated = lastUpdatedAsset();
+  const lastReceived = lastReceivedEntry();
+  const period = periodConditionSummary(dashPeriod);
+  const maxPeriod = Math.max(1, ...Object.values(period.counts));
+
+  const infoCard = (title, entry, emptyMsg)=>{
+    if(!entry) return `<div class="bg-white rounded-2xl border border-[#E7E2D3] p-4">
+      <p class="text-[10.5px] uppercase tracking-wider font-semibold text-[#a89f85] mb-2">${title}</p>
+      <p class="text-xs text-[#a89f85]">${emptyMsg}</p>
+    </div>`;
+    const name = entry.name || entry.itemName;
+    return `<div class="bg-white rounded-2xl border border-[#E7E2D3] p-4">
+      <p class="text-[10.5px] uppercase tracking-wider font-semibold text-[#a89f85] mb-2">${title}</p>
+      <p class="font-display font-semibold text-sm truncate">${escapeHtml(name)}</p>
+      <p class="text-[11px] font-mono text-[#a89f85] mt-0.5">${entry.assetNumber}</p>
+      <div class="flex items-center justify-between mt-2 text-xs">
+        <span class="text-[#8a8471]">Qty <span class="font-mono font-semibold text-[#21261f]">${entry.qty}</span></span>
+        <span class="text-[#8a8471]">${fmtDate(entry.lastUpdated || entry.date)}</span>
+      </div>
+    </div>`;
+  };
+
+  return `
+  <div class="space-y-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="font-display text-xl lg:text-2xl font-semibold">Overview</h1>
+        <p class="text-xs text-[#8a8471] mt-0.5">${escapeHtml(state.settings.companyName)} — live inventory snapshot</p>
+      </div>
+      <button data-action="new-item" class="hidden lg:flex items-center gap-2 theme-bg text-white px-4 py-2 rounded-xl text-sm font-medium">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>New Item
+      </button>
+    </div>
+
+    <div class="relative">
+      <div class="relative">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#a89f85]"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="dash-search" type="text" value="${escapeHtml(dashSearch)}" placeholder="Search by name or asset number…" class="inp pl-10"/>
+      </div>
+      <div id="dash-search-results" class="${dashSearch?'':'hidden'} absolute z-20 mt-1.5 w-full bg-white rounded-xl border border-[#E7E2D3] shadow-lg overflow-hidden">${dashboardSearchResultsHtml(dashSearch)}</div>
+    </div>
+
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      ${statCard('Asset Groups', groupCount)}
+      ${statCard('Total Quantity', totalQty+' pcs')}
+      ${statCard('Usable Quantity', usableQty+' pcs', totalQty? Math.round(usableQty/totalQty*100)+'% of total':'')}
+      ${statCard('Total Purchase Value', fmtMoney(totalValue))}
+    </div>
+
+    <div>
+      <p class="font-display font-semibold text-sm mb-2">Information</p>
+      <div class="grid md:grid-cols-3 gap-3">
+        ${infoCard('Last Updated Asset', lastUpdated, 'No assets yet.')}
+        ${infoCard('Last New Item Received', lastReceived, 'Nothing received yet.')}
+        <div id="dash-summary-card" class="bg-white rounded-2xl border border-[#E7E2D3] p-4">
+          <div class="flex items-start justify-between mb-3 gap-2">
+            <div class="min-w-0">
+              <p class="font-display font-semibold text-sm truncate">${dashPeriod==='year'?periodLabel('year'):periodLabel('month')} Summary of Assets and Inventory</p>
+              <p class="text-[10.5px] text-[#a89f85] truncate">${escapeHtml(state.settings.companyName)}</p>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0 no-capture">
+              <div class="flex rounded-lg border border-[#E2DFD3] overflow-hidden text-[10px] font-medium shrink-0">
+                <button data-period="month" class="px-2 py-1 ${dashPeriod==='month'?'theme-bg text-white':'hover:bg-[#F1EEE3]'}">Month</button>
+                <button data-period="year" class="px-2 py-1 ${dashPeriod==='year'?'theme-bg text-white':'hover:bg-[#F1EEE3]'}">Year</button>
+              </div>
+              <button id="dash-summary-download" title="Download as image" class="p-1.5 rounded-lg border border-[#E2DFD3] hover:bg-[#F1EEE3]">${iconDownload()}</button>
+            </div>
+          </div>
+          ${period.touched ? `<div class="space-y-1.5">${CONDITIONS.map(c=>{
+            const val = period.counts[c.key]||0;
+            const pct = Math.round(val/maxPeriod*100);
+            return `<div class="flex items-center gap-2">
+              <span class="w-14 text-[10.5px] font-medium shrink-0">${c.key}</span>
+              <div class="flex-1 h-2 rounded-full bg-[#F1EEE3] overflow-hidden"><div class="h-full rounded-full" style="width:${pct}%; background:${c.dot}"></div></div>
+              <span class="w-6 text-right text-[10.5px] font-mono text-[#8a8471]">${val}</span>
+            </div>`;
+          }).join('')}</div>` : `<p class="text-xs text-[#a89f85]">No activity ${dashPeriod==='year'?'this year':'this month'} yet.</p>`}
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-[#E7E2D3] p-4">
+      <p class="font-display font-semibold text-sm mb-2.5">All-Time Condition Breakdown</p>
+      <div class="flex flex-wrap gap-2">
+        ${CONDITIONS.map(c=>{
+          const val = condCounts[c.key]||0;
+          return `<span class="inline-flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-full text-xs font-medium ${c.cls}">
+            <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${c.dot}"></span>${c.key} <span class="font-mono font-semibold">${val}</span>
+          </span>`;
+        }).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+function dashboardSearchResultsHtml(query){
+  if(!query) return '';
+  const q = query.toLowerCase();
+  const matches = state.assets.filter(a=> (a.name||'').toLowerCase().includes(q) || (a.assetNumber||'').toLowerCase().includes(q)).slice(0,8);
+  if(!matches.length) return `<div class="px-4 py-3 text-xs text-[#a89f85]">No items match "${escapeHtml(query)}".</div>`;
+  return matches.map(a=>{
+    const c = condMeta(a.condition);
+    return `<button data-search-result="${a.id}" class="w-full flex items-center justify-between gap-3 px-4 py-2.5 text-left text-sm hover:bg-[#FAF8F1] border-b border-[#F5F2E8] last:border-0">
+      <div class="min-w-0">
+        <p class="font-medium truncate">${escapeHtml(a.name)}</p>
+        <p class="text-[11px] font-mono text-[#a89f85]">${a.assetNumber} · ${escapeHtml(a.location)}</p>
+      </div>
+      <span class="text-[11px] px-2 py-0.5 rounded-full shrink-0 ${c.cls}">${a.condition}</span>
+    </button>`;
+  }).join('');
+}
+function refreshDashboardSearch(){
+  const box = document.getElementById('dash-search-results');
+  if(!box) return;
+  box.innerHTML = dashboardSearchResultsHtml(dashSearch);
+  box.classList.toggle('hidden', !dashSearch);
+  bindDashboardSearchResultClicks();
+}
+function bindDashboardSearchResultClicks(){
+  document.querySelectorAll('[data-search-result]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const item = state.assets.find(a=>a.id===b.getAttribute('data-search-result'));
+      if(item) openEditor(item);
+    });
+  });
+}
+
+/* ---------------------------------------------------------------------------
+   11. LOCATION VIEW (asset groups at a location)
+--------------------------------------------------------------------------- */
+function renderLocationView(){
+  const locName = state.activeLocation;
+  const items = state.assets.filter(a=>a.location===locName);
+  const groups = {};
+  items.forEach(a=>{ (groups[a.assetNumber] = groups[a.assetNumber]||[]).push(a); });
+  const groupKeys = Object.keys(groups).sort();
+
+  const cards = groupKeys.map(key=>{
+    const list = groups[key];
+    const { total, usable } = groupTotals(list);
+    const rep = list[0];
+    const img = rep.imageSrc
+      ? `<img src="${escapeHtml(rep.imageSrc)}" class="w-full h-full object-cover" onerror="window.__cardImgError && window.__cardImgError(this)"/>`
+      : iconFallback();
+
+    const conditionRows = list.map(entry=>{
+      const c = condMeta(entry.condition);
+      return `<div class="flex items-center justify-between py-1.5 border-b border-[#F1EEE3] last:border-0">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-[11px] px-2 py-0.5 rounded-full font-medium ${c.cls}">${entry.condition}</span>
+          <span class="text-xs text-[#8a8471] font-mono">Qty ${entry.qty}</span>
+        </div>
+        <div class="flex items-center gap-1 shrink-0">
+          <button data-edit-entry="${entry.id}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Edit">${iconEdit()}</button>
+          <button data-dup-entry="${entry.id}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Duplicate">${iconDup()}</button>
+          <button data-del-entry="${entry.id}" class="p-1.5 rounded-lg hover:bg-red-50 text-red-500" title="Delete">${iconTrash()}</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div class="bg-white rounded-2xl border border-[#E7E2D3] overflow-hidden">
+      <div class="flex gap-4 p-4">
+        <div class="w-20 h-20 rounded-xl overflow-hidden bg-[#F1EEE3] shrink-0 flex items-center justify-center text-[#c9c3ac]">${img}</div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <p class="font-display font-semibold truncate">${escapeHtml(rep.name)}</p>
+              <p class="text-[11px] font-mono text-[#a89f85]">${key} · ${rep.category}</p>
+            </div>
+            <div class="flex gap-2 shrink-0">
+              <button data-batch="${key}" class="text-[11px] px-2.5 py-1 rounded-lg border border-[#E2DFD3] font-medium hover:bg-[#F1EEE3]">+ Batch</button>
+              <button data-split="${key}" class="text-[11px] px-2.5 py-1 rounded-lg theme-bg text-white font-medium">Split</button>
+            </div>
+          </div>
+          <div class="flex gap-4 mt-2">
+            <div><p class="text-[10px] uppercase text-[#a89f85] font-semibold">Total Qty</p><p class="font-mono font-semibold text-lg">${total}</p></div>
+            <div><p class="text-[10px] uppercase text-[#a89f85] font-semibold">Usable Qty</p><p class="font-mono font-semibold text-lg theme-text">${usable}</p></div>
+          </div>
+        </div>
+      </div>
+      <div class="px-4 pb-4">${conditionRows}</div>
+    </div>`;
+  }).join('');
+
+  return `
+  <div class="space-y-5">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="font-display text-2xl font-semibold">${escapeHtml(locName)}</h1>
+        <p class="text-sm text-[#8a8471]">${groupKeys.length} asset group${groupKeys.length===1?'':'s'} · ${items.reduce((s,a)=>s+Number(a.qty||0),0)} total pieces</p>
+      </div>
+      <button data-action="new-item-here" class="flex items-center gap-2 theme-bg text-white px-4 py-2.5 rounded-xl text-sm font-medium">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>New Item
+      </button>
+    </div>
+    ${groupKeys.length ? `<div class="grid md:grid-cols-2 gap-4">${cards}</div>` : emptyState('No assets yet', 'Add the first item for this location to start tracking inventory.')}
+  </div>`;
+}
+function iconFallback(){ return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>`; }
+function iconEdit(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>`; }
+function iconDup(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`; }
+function iconTrash(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6"/></svg>`; }
+function emptyState(title, body){
+  return `<div class="bg-white rounded-2xl border border-dashed border-[#DCD7C6] p-12 text-center">
+    <p class="font-display font-semibold text-lg">${title}</p>
+    <p class="text-sm text-[#8a8471] mt-1 max-w-sm mx-auto">${body}</p>
+  </div>`;
+}
+
+/* ---------------------------------------------------------------------------
+   12. EDITOR VIEW — form + live A4 preview, split & batch workflows
+--------------------------------------------------------------------------- */
+function openEditor(entry, opts){
+  opts = opts || {};
+  state.editing = entry ? JSON.parse(JSON.stringify(entry)) : {
+    id:null, assetNumber:null, name:'', category: CATEGORIES[0].name,
+    location: state.activeLocation || LOCATIONS[0].name, qty:1, condition:'Usable',
+    purchasePrice:0, purchaseDate:new Date().toISOString().slice(0,10), vendor:'', notes:'', imageSrc:''
+  };
+  state.splitMode = !!opts.split;
+  state.editorBaseAssetNumber = opts.baseAssetNumber || (entry ? entry.assetNumber : null);
+  state.editorIsBatch = !!opts.batch;
+  state.view = 'editor';
+  render();
+}
+
+function renderEditorView(){
+  const e = state.editing;
+  const heading = state.splitMode ? 'Split Item Condition' : (state.editorIsBatch ? 'Add New Batch' : (e.id ? 'Edit Item' : 'New Item'));
+
+  return `
+  <div class="space-y-4 max-w-3xl mx-auto">
+    <div class="flex items-center gap-3">
+      <button data-action="back" class="p-2 rounded-lg hover:bg-[#F1EEE3]" title="Back"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <h1 class="font-display text-2xl font-semibold flex-1">${heading}</h1>
+      <button data-action="back" class="p-2 rounded-lg hover:bg-[#F1EEE3]" title="Close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4" id="editor-form-wrap">
+      ${state.splitMode ? renderSplitForm(e) : renderStandardForm(e)}
+    </div>
+  </div>`;
+}
+
+function renderStandardForm(e){
+  const catOptions = CATEGORIES.map(c=>`<option value="${c.name}" ${e.category===c.name?'selected':''}>${c.name}</option>`).join('');
+  const locOptions = LOCATIONS.map(l=>`<option value="${l.name}" ${e.location===l.name?'selected':''}>${l.name}</option>`).join('');
+  const condOptions = CONDITIONS.map(c=>`<option value="${c.key}" ${e.condition===c.key?'selected':''}>${c.key}</option>`).join('');
+
+  return `
+    <div class="grid sm:grid-cols-2 gap-4">
+      <div class="sm:col-span-2">
+        <label class="lbl">Asset Number</label>
+        <input id="f-assetnum" type="text" readonly class="inp font-mono bg-[#F7F5EF] text-[#8a8471]" value="${e.assetNumber ? e.assetNumber : 'Auto-generated on save'}"/>
+      </div>
+      <div class="sm:col-span-2">
+        <label class="lbl">Asset Name</label>
+        <input id="f-name" type="text" class="inp" value="${escapeHtml(e.name)}" placeholder="e.g. Office Chairs" />
+      </div>
+      <div>
+        <label class="lbl">Category</label>
+        <select id="f-category" class="inp">${catOptions}</select>
+      </div>
+      <div>
+        <label class="lbl">Assigned Location</label>
+        <select id="f-location" class="inp">${locOptions}</select>
+      </div>
+      <div>
+        <label class="lbl">Quantity</label>
+        <input id="f-qty" type="number" min="1" step="1" class="inp" value="${e.qty}"/>
+      </div>
+      <div>
+        <label class="lbl">Condition</label>
+        <select id="f-condition" class="inp">${condOptions}</select>
+      </div>
+      <div>
+        <label class="lbl">Purchase Price (per unit)</label>
+        <input id="f-price" type="number" min="0" step="0.01" class="inp" value="${e.purchasePrice}"/>
+      </div>
+      <div>
+        <label class="lbl">Purchase Date</label>
+        <input id="f-pdate" type="date" class="inp" value="${(e.purchaseDate||'').slice(0,10)}"/>
+      </div>
+      <div class="sm:col-span-2">
+        <label class="lbl">Vendor Details</label>
+        <input id="f-vendor" type="text" class="inp" value="${escapeHtml(e.vendor)}" placeholder="Vendor name / contact"/>
+      </div>
+      <div class="sm:col-span-2">
+        <label class="lbl">Notes</label>
+        <textarea id="f-notes" rows="2" class="inp">${escapeHtml(e.notes)}</textarea>
+      </div>
+    </div>
+
+    <div class="border-t border-[#EFEBDD] pt-4">
+      <p class="lbl mb-2">Asset Image</p>
+      <div class="grid sm:grid-cols-2 gap-3">
+        <div class="border border-dashed border-[#DCD7C6] rounded-xl p-3 text-center">
+          <p class="text-[11px] font-semibold text-[#8a8471] mb-2">Method A — Local Upload</p>
+          <input id="f-image-file" type="file" accept="image/*" class="text-xs w-full"/>
+        </div>
+        <div class="border border-dashed border-[#DCD7C6] rounded-xl p-3">
+          <p class="text-[11px] font-semibold text-[#8a8471] mb-2">Method B — Cloud URL (Google Drive auto-converts)</p>
+          <input id="f-image-url" type="text" class="inp text-xs" placeholder="Paste image or Google Drive link" value="${(e.imageSrc && e.imageSrc.startsWith('http'))?escapeHtml(e.imageSrc):''}"/>
+          <p class="text-[10px] text-[#a89f85] mt-1.5 leading-snug">In Google Drive, right-click the file → Share → set to <strong>"Anyone with the link"</strong> (Viewer). Restricted files cannot be embedded, even if you're signed in.</p>
+        </div>
+      </div>
+      <div id="image-preview-wrap" class="mt-3">${e.imageSrc?`<img src="${escapeHtml(e.imageSrc)}" class="h-20 rounded-lg border border-[#E7E2D3] object-cover" onerror="window.__imgLoadError && window.__imgLoadError(this)"/>`:''}</div>
+      <p id="image-error-note" class="hidden text-[11px] text-red-500 mt-2">This image link couldn't load — the Drive file is probably not shared as "Anyone with the link", or the URL isn't a direct image link.</p>
+    </div>
+
+
+    <div class="flex flex-wrap gap-3 pt-2 border-t border-[#EFEBDD]">
+      <button data-action="save-item" class="theme-bg text-white px-5 py-2.5 rounded-xl text-sm font-medium">Save Item</button>
+      <button data-action="clear-form" class="px-5 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">Clear Form</button>
+      ${e.id?`<button data-action="delete-item" class="px-5 py-2.5 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 ml-auto">Delete</button>`:''}
+    </div>
+  `;
+}
+
+function renderSplitForm(e){
+  const group = state.assets.filter(a=>a.assetNumber===state.editorBaseAssetNumber);
+  const totalQty = group.reduce((s,a)=>s+Number(a.qty||0),0);
+  const otherConditions = CONDITIONS.filter(c=>c.key!=='Usable');
+  const usableMeta = condMeta('Usable');
+
+  const otherRows = otherConditions.map(c=>{
+    const existing = group.find(g=>g.condition===c.key);
+    return `<div class="flex items-center gap-3">
+      <span class="w-24 text-xs font-medium px-2 py-1 rounded-full ${c.cls} text-center">${c.key}</span>
+      <input data-split-qty="${c.key}" type="number" min="0" step="1" max="${totalQty}" class="inp flex-1" value="${existing?existing.qty:0}"/>
+    </div>`;
+  }).join('');
+
+  const usableExisting = group.find(g=>g.condition==='Usable');
+  const otherSum = otherConditions.reduce((s,c)=>{ const ex=group.find(g=>g.condition===c.key); return s+(ex?Number(ex.qty):0); },0);
+  const usableDefault = usableExisting ? usableExisting.qty : Math.max(0, totalQty - otherSum);
+
+  return `
+    <div class="space-y-1 mb-2">
+      <p class="text-sm text-[#635e4d]">Asset: <span class="font-mono font-semibold">${state.editorBaseAssetNumber}</span> — ${escapeHtml(group[0]?.name||'')}</p>
+      <p class="text-xs text-[#8a8471]">Every item starts as Usable. Enter a quantity for any other condition below and Usable is deducted automatically — it always equals the group's total.</p>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <span class="w-24 text-xs font-medium px-2 py-1 rounded-full ${usableMeta.cls} text-center">Usable</span>
+      <input id="split-usable-display" type="number" class="inp flex-1 bg-[#F7F5EF] text-[#8a8471] font-semibold" value="${usableDefault}" readonly tabindex="-1"/>
+    </div>
+
+    <div class="space-y-3 pt-1">${otherRows}</div>
+
+    <div class="flex items-center justify-between pt-2 text-sm">
+      <span class="text-[#8a8471]">Group Total</span>
+      <span id="split-total-check" class="font-mono font-semibold theme-text">${usableDefault} + ${otherSum} = ${totalQty}</span>
+    </div>
+    <div class="flex flex-wrap gap-3 pt-3 border-t border-[#EFEBDD]">
+      <button data-action="save-split" class="theme-bg text-white px-5 py-2.5 rounded-xl text-sm font-medium">Save Split</button>
+      <button data-action="back" class="px-5 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">Cancel</button>
+    </div>
+  `;
+}
+
+/* ---------------------------------------------------------------------------
+   13. LIVE A4 PREVIEW RENDERER
+--------------------------------------------------------------------------- */
+function a4TemplateHtml(e, forPrint){
+  const logo = state.settings.logo ? `<img src="${state.settings.logo}" class="h-12 object-contain"/>` : '';
+  const img = e.imageSrc ? `<img src="${e.imageSrc}" class="w-full h-40 object-cover rounded-lg border border-[#E7E2D3]"/>` : `<div class="w-full h-40 rounded-lg border border-dashed border-[#DCD7C6] flex items-center justify-center text-[#c9c3ac] text-xs">No Image</div>`;
+  const c = condMeta(e.condition);
+  return `
+  <div class="flex items-start justify-between border-b-2 pb-4 mb-6" style="border-color:var(--theme-color)">
+    <div class="flex items-center gap-3">${logo}<div>
+      <p class="font-display font-bold text-lg">${escapeHtml(state.settings.companyName||'Company Name')}</p>
+      <p class="text-[10px] text-[#8a8471]">${escapeHtml(state.settings.address||'')}</p>
+      <p class="text-[10px] text-[#8a8471]">${[state.settings.phone,state.settings.email,state.settings.website].filter(Boolean).map(escapeHtml).join(' · ')}</p>
+    </div></div>
+    <div class="text-right">
+      <p class="text-[10px] uppercase tracking-wider font-semibold" style="color:var(--theme-color)">Asset Manifest</p>
+      <p class="font-mono text-xs mt-1">${e.assetNumber || 'PENDING'}</p>
+    </div>
+  </div>
+  <div class="grid grid-cols-3 gap-6">
+    <div>${img}</div>
+    <div class="col-span-2 space-y-2">
+      <p class="font-display font-semibold text-xl">${escapeHtml(e.name)||'Untitled Asset'}</p>
+      <div class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] mt-2">
+        <p><span class="text-[#8a8471]">Category:</span> ${escapeHtml(e.category)}</p>
+        <p><span class="text-[#8a8471]">Location:</span> ${escapeHtml(e.location)}</p>
+        <p><span class="text-[#8a8471]">Quantity:</span> ${e.qty}</p>
+        <p><span class="text-[#8a8471]">Condition:</span> <span class="px-2 py-0.5 rounded-full ${c.cls}">${e.condition}</span></p>
+        <p><span class="text-[#8a8471]">Purchase Price:</span> ${fmtMoney(e.purchasePrice)}</p>
+        <p><span class="text-[#8a8471]">Purchase Date:</span> ${fmtDate(e.purchaseDate)}</p>
+        <p class="col-span-2"><span class="text-[#8a8471]">Vendor:</span> ${escapeHtml(e.vendor)||'—'}</p>
+        <p><span class="text-[#8a8471]">Last Updated:</span> ${fmtDate(e.lastUpdated||nowISO())}</p>
+      </div>
+      <div class="mt-2">
+        <p class="text-[#8a8471] text-[11px]">Notes:</p>
+        <p class="text-[11px]">${escapeHtml(e.notes)||'—'}</p>
+      </div>
+    </div>
+  </div>
+  ${a4FooterHtml(1,1)}
+  `;
+}
+function a4FooterHtml(page, total){
+  const d = new Date();
+  return `
+  <div class="mt-10 pt-3 border-t text-[9px] leading-relaxed" style="border-color:var(--theme-color); color:var(--theme-color)">
+    <p>This report contains proprietary inventory data intended solely for authorized internal review and management purposes.</p>
+    <p>For the most up-to-date live records, refer to the Assets and Inventory Manager Portal.</p>
+    <p>Printed on ${d.toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'})} at ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}.</p>
+    <p>Page ${page} of ${total}</p>
+    <div class="mt-4 flex items-end gap-2 text-[#8a8471]">
+      <span>Signature:</span><span class="flex-1 border-b border-[#c9c3ac] h-4"></span>
+    </div>
+  </div>`;
+}
+function updateA4Preview(){
+  const target = document.getElementById('a4-preview');
+  const targetMobile = document.getElementById('a4-preview-mobile');
+  if(!target && !targetMobile) return;
+  const html = a4TemplateHtml(state.editing || {}, false);
+  if(target) target.innerHTML = html;
+  if(targetMobile) targetMobile.innerHTML = html;
+}
+
+/* ---------------------------------------------------------------------------
+   14. FORM BINDING / SAVE LOGIC
+--------------------------------------------------------------------------- */
+function readFormIntoEditing(){
+  const e = state.editing;
+  e.name = document.getElementById('f-name').value.trim();
+  e.category = document.getElementById('f-category').value;
+  e.location = document.getElementById('f-location').value;
+  e.qty = Math.max(1, parseInt(document.getElementById('f-qty').value,10)||1);
+  e.condition = document.getElementById('f-condition').value;
+  e.purchasePrice = parseFloat(document.getElementById('f-price').value)||0;
+  e.purchaseDate = document.getElementById('f-pdate').value;
+  e.vendor = document.getElementById('f-vendor').value.trim();
+  e.notes = document.getElementById('f-notes').value.trim();
+  const urlVal = document.getElementById('f-image-url').value.trim();
+  if(urlVal) e.imageSrc = convertImageUrl(urlVal);
+}
+
+function refreshImagePreview(){
+  const wrap = document.getElementById('image-preview-wrap');
+  const note = document.getElementById('image-error-note');
+  if(!wrap) return;
+  const src = state.editing.imageSrc;
+  if(note) note.classList.add('hidden');
+  wrap.innerHTML = src ? `<img src="${escapeHtml(src)}" class="h-20 rounded-lg border border-[#E7E2D3] object-cover" onerror="window.__imgLoadError && window.__imgLoadError(this)"/>` : '';
+}
+window.__imgLoadError = function(imgEl){
+  imgEl.classList.add('border-red-300');
+  imgEl.style.opacity = '0.35';
+  const note = document.getElementById('image-error-note');
+  if(note) note.classList.remove('hidden');
+};
+window.__cardImgError = function(imgEl){
+  const wrap = imgEl.parentElement;
+  if(wrap) wrap.innerHTML = iconFallback();
+};
+
+async function saveStandardItem(){
+  readFormIntoEditing();
+  const e = state.editing;
+  if(!e.name){ showToast('Asset name is required.','error'); return; }
+  const isNewEntry = !e.id;
+
+  if(!e.assetNumber){
+    e.assetNumber = await nextAssetNumber(e.location, e.category);
+  }
+  if(!e.id) e.id = uuid();
+  e.lastUpdated = nowISO();
+  if(!e.createdAt) e.createdAt = nowISO();
+
+  await idbPut('assets', e);
+  const idx = state.assets.findIndex(a=>a.id===e.id);
+  if(idx>=0) state.assets[idx] = e; else state.assets.push(e);
+
+  const actionLabel = isNewEntry ? (state.editorIsBatch ? 'batch added' : 'created') : 'updated';
+  await logHistory(actionLabel, e);
+  showToast('Item saved successfully.');
+  navigateTo('location', e.location);
+}
+
+async function deleteCurrentItem(){
+  const e = state.editing;
+  if(!e || !e.id) return;
+  const ok = await askConfirm('Delete this item?', 'This will permanently remove it from active inventory. A history record will be kept.');
+  if(!ok) return;
+  await idbDelete('assets', e.id);
+  state.assets = state.assets.filter(a=>a.id!==e.id);
+  await logHistory('deleted', e);
+  showToast('Item deleted.','info');
+  navigateTo('location', e.location);
+}
+
+async function saveSplit(){
+  const base = state.editorBaseAssetNumber;
+  const group = state.assets.filter(a=>a.assetNumber===base);
+  const rep = group[0];
+  const totalAllowed = group.reduce((s,a)=>s+Number(a.qty||0),0);
+
+  const rows = document.querySelectorAll('[data-split-qty]');
+  let otherSum = 0;
+  const values = {};
+  rows.forEach(r=>{
+    const v = Math.max(0, parseInt(r.value,10)||0);
+    values[r.getAttribute('data-split-qty')] = v;
+    otherSum += v;
+  });
+  const usableQty = totalAllowed - otherSum;
+  if(usableQty < 0){
+    showToast(`Those quantities total ${otherSum}, which is more than the group's ${totalAllowed} pieces.`,'error');
+    return;
+  }
+  values['Usable'] = usableQty;
+
+  // remove old entries for this group, then recreate one entry per non-zero condition
+  for(const g of group){ await idbDelete('assets', g.id); }
+  state.assets = state.assets.filter(a=>a.assetNumber!==base);
+
+  const nowIso = nowISO();
+  for(const [cond, qty] of Object.entries(values)){
+    if(qty<=0) continue;
+    const entry = {
+      id: uuid(), assetNumber: base, name: rep.name, category: rep.category, location: rep.location,
+      qty, condition: cond, purchasePrice: rep.purchasePrice, purchaseDate: rep.purchaseDate,
+      vendor: rep.vendor, notes: rep.notes, imageSrc: rep.imageSrc, lastUpdated: nowIso, createdAt: rep.createdAt||nowIso
+    };
+    await idbPut('assets', entry);
+    state.assets.push(entry);
+    await logHistory('split', entry);
+  }
+  showToast('Item split saved.');
+  navigateTo('location', rep.location);
+}
+
+/* ---------------------------------------------------------------------------
+   15. VIEW EVENT BINDING (delegated per-render)
+--------------------------------------------------------------------------- */
+function bindViewEvents(){
+  document.querySelectorAll('[data-action="new-item"], [data-action="new-item-here"]').forEach(b=>{
+    b.addEventListener('click', ()=>openEditor(null));
+  });
+  document.querySelectorAll('[data-nav]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const v = btn.getAttribute('data-nav');
+      if(v.startsWith('loc:')) navigateTo('location', v.split(':')[1]);
+    });
+  });
+
+  // dashboard search & period toggle
+  const dashSearchInput = document.getElementById('dash-search');
+  if(dashSearchInput){
+    dashSearchInput.addEventListener('input', debounce(()=>{ dashSearch = dashSearchInput.value; refreshDashboardSearch(); }, 150));
+    dashSearchInput.addEventListener('focus', refreshDashboardSearch);
+  }
+  bindDashboardSearchResultClicks();
+  document.querySelectorAll('[data-period]').forEach(b=>{
+    b.addEventListener('click', ()=>{ dashPeriod = b.getAttribute('data-period'); render(); });
+  });
+  const summaryDownloadBtn = document.getElementById('dash-summary-download');
+  if(summaryDownloadBtn) summaryDownloadBtn.addEventListener('click', downloadSummaryCardImage);
+
+  // location card actions
+  document.querySelectorAll('[data-edit-entry]').forEach(b=>b.addEventListener('click', ()=>{
+    const id = b.getAttribute('data-edit-entry');
+    const entry = state.assets.find(a=>a.id===id);
+    if(entry) openEditor(entry);
+  }));
+  document.querySelectorAll('[data-dup-entry]').forEach(b=>b.addEventListener('click', async ()=>{
+    const id = b.getAttribute('data-dup-entry');
+    const entry = state.assets.find(a=>a.id===id);
+    if(!entry) return;
+    const copy = JSON.parse(JSON.stringify(entry));
+    copy.id = uuid();
+    copy.assetNumber = await nextAssetNumber(copy.location, copy.category);
+    copy.lastUpdated = nowISO(); copy.createdAt = nowISO();
+    await idbPut('assets', copy);
+    state.assets.push(copy);
+    await logHistory('duplicated', copy);
+    showToast('Item duplicated.');
+    render();
+  }));
+  document.querySelectorAll('[data-del-entry]').forEach(b=>b.addEventListener('click', async ()=>{
+    const id = b.getAttribute('data-del-entry');
+    const entry = state.assets.find(a=>a.id===id);
+    if(!entry) return;
+    const ok = await askConfirm('Delete this entry?', `Remove ${entry.qty} × ${entry.condition} from ${entry.assetNumber}.`);
+    if(!ok) return;
+    await idbDelete('assets', id);
+    state.assets = state.assets.filter(a=>a.id!==id);
+    await logHistory('deleted', entry);
+    showToast('Entry deleted.','info');
+    render();
+  }));
+  document.querySelectorAll('[data-split]').forEach(b=>b.addEventListener('click', ()=>{
+    const base = b.getAttribute('data-split');
+    const rep = state.assets.find(a=>a.assetNumber===base);
+    openEditor(rep, { split:true, baseAssetNumber: base });
+  }));
+  document.querySelectorAll('[data-batch]').forEach(b=>b.addEventListener('click', ()=>{
+    const base = b.getAttribute('data-batch');
+    const rep = state.assets.find(a=>a.assetNumber===base);
+    const batchEntry = Object.assign({}, rep, { id:null, qty:1, condition:'Usable', purchaseDate:new Date().toISOString().slice(0,10), createdAt:null, lastUpdated:null });
+    openEditor(batchEntry, { batch:true, baseAssetNumber: base });
+  }));
+
+  // editor actions
+  document.querySelectorAll('[data-action="back"]').forEach(backBtn=>{
+    backBtn.addEventListener('click', ()=>{
+      const loc = state.editing ? state.editing.location : state.activeLocation;
+      navigateTo(loc ? 'location' : 'dashboard', loc);
+    });
+  });
+  const saveBtn = document.querySelector('[data-action="save-item"]');
+  if(saveBtn) saveBtn.addEventListener('click', saveStandardItem);
+  const clearBtn = document.querySelector('[data-action="clear-form"]');
+  if(clearBtn) clearBtn.addEventListener('click', ()=>openEditor(state.editing.id ? state.editing : null, { baseAssetNumber: state.editorBaseAssetNumber }));
+  const delBtn = document.querySelector('[data-action="delete-item"]');
+  if(delBtn) delBtn.addEventListener('click', deleteCurrentItem);
+  const saveSplitBtn = document.querySelector('[data-action="save-split"]');
+  if(saveSplitBtn) saveSplitBtn.addEventListener('click', saveSplit);
+
+  // live-updating form fields -> preview + save-on-enter/blur
+  const liveIds = ['f-name','f-category','f-location','f-qty','f-condition','f-price','f-pdate','f-vendor','f-notes'];
+  liveIds.forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    const handler = ()=>{ readFormIntoEditing(); };
+    el.addEventListener('input', debounce(handler, 120));
+    el.addEventListener('change', handler);
+    el.addEventListener('keydown', (ev)=>{ if(ev.key==='Enter' && el.tagName!=='TEXTAREA'){ ev.preventDefault(); handler(); showToast('Synced.', 'info'); } });
+  });
+  const urlInput = document.getElementById('f-image-url');
+  if(urlInput){
+    const urlHandler = ()=>{ readFormIntoEditing(); refreshImagePreview(); };
+    urlInput.addEventListener('input', debounce(urlHandler, 250));
+    urlInput.addEventListener('change', urlHandler);
+    urlInput.addEventListener('keydown', (ev)=>{ if(ev.key==='Enter'){ ev.preventDefault(); urlHandler(); showToast('Synced.', 'info'); } });
+  }
+  const fileInput = document.getElementById('f-image-file');
+  if(fileInput){
+    fileInput.addEventListener('change', async (ev)=>{
+      const file = ev.target.files[0];
+      if(!file) return;
+      const dataUri = await compressImageFile(file);
+      state.editing.imageSrc = dataUri;
+      refreshImagePreview();
+    });
+  }
+  document.querySelectorAll('[data-split-qty]').forEach(inp=>{
+    inp.addEventListener('input', ()=>{
+      const group = state.assets.filter(a=>a.assetNumber===state.editorBaseAssetNumber);
+      const totalQty = group.reduce((s,a)=>s+Number(a.qty||0),0);
+      let sum = 0;
+      document.querySelectorAll('[data-split-qty]').forEach(r=>{ sum += Math.max(0, parseInt(r.value,10)||0); });
+      const usable = totalQty - sum;
+      const usableInput = document.getElementById('split-usable-display');
+      const label = document.getElementById('split-total-check');
+      const invalid = usable < 0;
+      if(usableInput){
+        usableInput.value = Math.max(0, usable);
+        usableInput.classList.toggle('text-red-500', invalid);
+      }
+      if(label){
+        label.textContent = `${Math.max(0,usable)} + ${sum} = ${totalQty}`;
+        label.classList.toggle('text-red-500', invalid);
+        label.classList.toggle('theme-text', !invalid);
+      }
+    });
+  });
+
+  // history view
+  bindHistoryEvents();
+  // print & export view
+  bindPrintViewEvents();
+  // settings view
+  bindSettingsEvents();
+}
+
+/* ---------------------------------------------------------------------------
+   16. HISTORY VIEW
+--------------------------------------------------------------------------- */
+let historySearch = '';
+let historySort = 'date_desc';
+let dashSearch = '';
+let dashPeriod = 'month';
+
+function renderHistoryView(){
+  const rows = filterSortHistory();
+  return `
+  <div class="space-y-4">
+    <div>
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h1 class="font-display text-2xl font-semibold">History</h1>
+        <div class="flex gap-2">
+          <input id="hist-search" type="text" placeholder="Search history…" value="${escapeHtml(historySearch)}" class="inp w-52"/>
+          <select id="hist-sort" class="inp w-40">
+            <option value="date_desc" ${historySort==='date_desc'?'selected':''}>Newest First</option>
+            <option value="date_asc" ${historySort==='date_asc'?'selected':''}>Oldest First</option>
+            <option value="name" ${historySort==='name'?'selected':''}>Item Name</option>
+            <option value="location" ${historySort==='location'?'selected':''}>Location</option>
+            <option value="category" ${historySort==='category'?'selected':''}>Category</option>
+          </select>
+        </div>
+      </div>
+      <p class="text-xs text-[#8a8471] mt-1.5">This is a running log of every action taken over time, so the same item can appear more than once. For an item's <span class="font-semibold">current</span> quantities, open it on its Location page — quantities here reflect what was true at the moment each entry was logged.</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-[#E7E2D3] overflow-x-auto">
+      <table class="w-full text-xs min-w-[900px]">
+        <thead>
+          <tr class="text-left text-[11px] uppercase tracking-wider text-[#a89f85] border-b border-[#EFEBDD]">
+            <th class="px-4 py-2.5">Item</th><th class="px-4 py-2.5">Asset #</th><th class="px-4 py-2.5">Category</th><th class="px-4 py-2.5">Location</th>
+            <th class="px-4 py-2.5">Qty</th><th class="px-4 py-2.5">Condition</th><th class="px-4 py-2.5">Action</th>
+            <th class="px-4 py-2.5">Date</th><th class="px-4 py-2.5 text-right">Options</th>
+          </tr>
+        </thead>
+        <tbody id="hist-tbody">${historyRowsHtml(rows)}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+function historyRowsHtml(rows){
+  return rows.length ? rows.map(h=>{
+    const c = condMeta(h.condition);
+    return `<tr class="border-b border-[#F5F2E8] last:border-0 hover:bg-[#FAF8F1]">
+      <td class="px-4 py-2">${escapeHtml(h.itemName)}</td>
+      <td class="px-4 py-2 font-mono">${h.assetNumber}</td>
+      <td class="px-4 py-2">${escapeHtml(h.category)}</td>
+      <td class="px-4 py-2">${escapeHtml(h.location)}</td>
+      <td class="px-4 py-2 font-mono">${h.qty}</td>
+      <td class="px-4 py-2"><span class="px-2 py-0.5 rounded-full ${c.cls}">${h.condition}</span></td>
+      <td class="px-4 py-2 capitalize">${h.action}</td>
+      <td class="px-4 py-2 text-[#8a8471]">${fmtDate(h.date)}</td>
+      <td class="px-4 py-2">
+        <div class="flex justify-end gap-1">
+          <button data-hist-open="${h.id}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Open">${iconEye()}</button>
+          <button data-hist-print="${h.id}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Print">${iconPrinter()}</button>
+          <button data-hist-pdf="${h.id}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Export PDF">${iconDownload()}</button>
+          <button data-hist-del="${h.id}" class="p-1.5 rounded-lg hover:bg-red-50 text-red-500" title="Delete Record">${iconTrash()}</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="9" class="px-4 py-10 text-center text-[#8a8471]">No history records found.</td></tr>`;
+}
+function iconEye(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`; }
+function iconPrinter(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>`; }
+function iconDownload(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>`; }
+
+function filterSortHistory(){
+  let rows = state.history.slice();
+  if(historySearch){
+    const q = historySearch.toLowerCase();
+    rows = rows.filter(h=> (h.itemName||'').toLowerCase().includes(q) || (h.assetNumber||'').toLowerCase().includes(q) || (h.location||'').toLowerCase().includes(q) || (h.category||'').toLowerCase().includes(q));
+  }
+  switch(historySort){
+    case 'date_asc': rows.sort((a,b)=> new Date(a.date)-new Date(b.date)); break;
+    case 'name': rows.sort((a,b)=> (a.itemName||'').localeCompare(b.itemName||'')); break;
+    case 'location': rows.sort((a,b)=> (a.location||'').localeCompare(b.location||'')); break;
+    case 'category': rows.sort((a,b)=> (a.category||'').localeCompare(b.category||'')); break;
+    default: rows.sort((a,b)=> new Date(b.date)-new Date(a.date));
+  }
+  return rows;
+}
+function refreshHistoryTable(){
+  const tbody = document.getElementById('hist-tbody');
+  if(!tbody) return;
+  tbody.innerHTML = historyRowsHtml(filterSortHistory());
+  bindHistoryRowActions();
+}
+function bindHistoryEvents(){
+  const s = document.getElementById('hist-search');
+  if(s) s.addEventListener('input', debounce(()=>{ historySearch = s.value; refreshHistoryTable(); }, 150));
+  const so = document.getElementById('hist-sort');
+  if(so) so.addEventListener('change', ()=>{ historySort = so.value; refreshHistoryTable(); });
+  bindHistoryRowActions();
+}
+function bindHistoryRowActions(){
+  document.querySelectorAll('[data-hist-open]').forEach(b=>b.addEventListener('click', ()=>{
+    const rec = state.history.find(h=>h.id===b.getAttribute('data-hist-open'));
+    if(!rec) return;
+    const live = state.assets.find(a=>a.id===rec.assetNumber || (a.assetNumber===rec.assetNumber && a.condition===rec.condition));
+    openEditor(live || rec);
+  }));
+  document.querySelectorAll('[data-hist-print]').forEach(b=>b.addEventListener('click', ()=>{
+    const rec = state.history.find(h=>h.id===b.getAttribute('data-hist-print'));
+    if(rec) printSingle(rec);
+  }));
+  document.querySelectorAll('[data-hist-pdf]').forEach(b=>b.addEventListener('click', ()=>{
+    const rec = state.history.find(h=>h.id===b.getAttribute('data-hist-pdf'));
+    if(rec) exportSinglePdf(rec);
+  }));
+  document.querySelectorAll('[data-hist-del]').forEach(b=>b.addEventListener('click', async ()=>{
+    const id = b.getAttribute('data-hist-del');
+    const ok = await askConfirm('Delete history record?', 'This only removes the historical log entry, not the live asset.');
+    if(!ok) return;
+    await idbDelete('history', id);
+    state.history = state.history.filter(h=>h.id!==id);
+    showToast('History record deleted.','info');
+    render();
+  }));
+}
+
+/* ---------------------------------------------------------------------------
+   17. SETTINGS VIEW
+--------------------------------------------------------------------------- */
+function renderSettingsView(){
+  const s = state.settings;
+  const changelogHtml = state.meta.changelog.map(c=>`
+    <div class="border-b border-[#F1EEE3] last:border-0 py-3">
+      <div class="flex items-center gap-2">
+        <span class="font-mono text-xs font-semibold theme-text">v${c.version}</span>
+        <span class="text-[10px] px-2 py-0.5 rounded-full ${c.type==='major'?'bg-[#FEE2E2] text-[#991B1B]':'bg-[#DCFCE7] text-[#166534]'}">${c.type}</span>
+        <span class="text-[10px] text-[#a89f85] ml-auto">${fmtDate(c.date)}</span>
+      </div>
+      <p class="text-xs mt-1">${escapeHtml(c.summary)}</p>
+    </div>`).join('');
+
+  return `
+  <div class="space-y-6 max-w-3xl">
+    <h1 class="font-display text-2xl font-semibold">Settings</h1>
+
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
+      <p class="font-display font-semibold">Company Metadata</p>
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div><label class="lbl">Company Name</label><input id="s-name" class="inp" value="${escapeHtml(s.companyName)}"/></div>
+        <div><label class="lbl">Phone</label><input id="s-phone" class="inp" value="${escapeHtml(s.phone)}"/></div>
+        <div class="sm:col-span-2"><label class="lbl">Address</label><input id="s-address" class="inp" value="${escapeHtml(s.address)}"/></div>
+        <div><label class="lbl">Email</label><input id="s-email" class="inp" value="${escapeHtml(s.email)}"/></div>
+        <div><label class="lbl">Website</label><input id="s-website" class="inp" value="${escapeHtml(s.website)}"/></div>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
+      <p class="font-display font-semibold">Asset Categories</p>
+      <p class="text-xs text-[#8a8471]">New categories appear instantly in the New Item form's Category dropdown. Asset codes are auto-derived from the first three letters of the category name (e.g. Glassware → GLA, producing codes like LBY-GLA-001).</p>
+      <div class="flex flex-wrap gap-2">
+        ${CATEGORIES.map(c=>`<span class="text-xs font-mono px-2.5 py-1 rounded-full theme-tint theme-text font-semibold">${escapeHtml(c.name)} · ${c.code}</span>`).join('')}
+      </div>
+      <div class="flex flex-wrap gap-2 items-end">
+        <div class="flex-1 min-w-[160px]">
+          <label class="lbl">New Category Name</label>
+          <input id="s-cat-name" type="text" class="inp" placeholder="e.g. Glassware"/>
+        </div>
+        <div class="w-24">
+          <label class="lbl">Code</label>
+          <input id="s-cat-code-preview" type="text" class="inp font-mono bg-[#F7F5EF] text-[#8a8471]" readonly value=""/>
+        </div>
+        <button id="s-cat-add" class="px-4 py-2.5 rounded-xl theme-bg text-white text-sm font-medium">Add Category</button>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
+      <p class="font-display font-semibold">Currency</p>
+      <div class="flex gap-2">
+        <button data-currency="USD" class="curr-btn px-4 py-2 rounded-xl text-sm font-medium border ${s.currency==='USD'?'theme-bg text-white border-transparent':'border-[#E2DFD3]'}">USD ($)</button>
+        <button data-currency="LKR" class="curr-btn px-4 py-2 rounded-xl text-sm font-medium border ${s.currency==='LKR'?'theme-bg text-white border-transparent':'border-[#E2DFD3]'}">LKR (Rs.)</button>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
+      <p class="font-display font-semibold">Branding Logo</p>
+      <div class="flex items-center gap-4">
+        <div class="w-16 h-16 rounded-xl bg-[#F1EEE3] overflow-hidden flex items-center justify-center">${s.logo?`<img src="${s.logo}" class="w-full h-full object-cover"/>`:'<span class="text-[#c9c3ac] text-xs">No Logo</span>'}</div>
+        <input id="s-logo-file" type="file" accept="image/*" class="text-xs"/>
+        <button id="s-logo-remove" class="text-xs px-3 py-1.5 rounded-lg border border-[#E2DFD3] hover:bg-[#F1EEE3]">Remove Logo</button>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
+      <p class="font-display font-semibold uppercase tracking-wide text-sm">Primary Theme Color</p>
+      <div class="flex items-center gap-3">
+        <input id="s-color-picker" type="color" value="${s.themeColor}" class="w-12 h-12 rounded-lg border border-[#E2DFD3] cursor-pointer"/>
+        <input id="s-color-hex" type="text" value="${s.themeColor}" class="inp font-mono w-40"/>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
+      <p class="font-display font-semibold uppercase tracking-wide text-sm">Menu Bar Color</p>
+      <p class="text-xs text-[#8a8471] -mt-2">Colors the left sidebar and mobile menu. Text automatically switches between light and dark for readability.</p>
+      <div class="flex items-center gap-3">
+        <input id="s-sidebar-color-picker" type="color" value="${s.sidebarColor}" class="w-12 h-12 rounded-lg border border-[#E2DFD3] cursor-pointer"/>
+        <input id="s-sidebar-color-hex" type="text" value="${s.sidebarColor}" class="inp font-mono w-40"/>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
+      <p class="font-display font-semibold uppercase tracking-wide text-sm">Appearance</p>
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-sm font-medium">${s.darkMode ? 'Dark Mode' : 'Light Mode'}</p>
+          <p class="text-xs text-[#8a8471]">Switch the app's overall background and text between light and dark.</p>
+        </div>
+        <button id="s-dark-toggle" role="switch" aria-checked="${s.darkMode?'true':'false'}" class="relative w-12 h-7 rounded-full transition shrink-0 ${s.darkMode?'theme-bg':'bg-[#E2DFD3]'}">
+          <span class="absolute top-1 ${s.darkMode?'left-6':'left-1'} w-5 h-5 rounded-full bg-white shadow transition-all"></span>
+        </button>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
+      <div class="flex items-center justify-between flex-wrap gap-2">
+        <p class="font-display font-semibold">Cloud Connection Workspace — Google Drive Live-Sync</p>
+        <span id="cloud-status-pill" class="text-[11px] font-mono px-2.5 py-1 rounded-full flex items-center gap-1.5 bg-[#F1EEE3]">
+          <span class="cloud-dot ${state.cloud.connected?(state.cloud.syncing?'busy':'on'):'off'}" id="cloud-status-dot"></span><span id="cloud-status-text">${state.cloud.connected?(state.cloud.syncing?'Syncing…':'Synced'):'Offline'}</span>
+        </span>
+      </div>
+      <p class="text-xs text-[#8a8471]">Connect a shared Google Drive folder so every authorized device reads and writes the exact same live database file (<code class="font-mono">gaia_lake_inventory.json</code>). Generate a Client ID and API Key from your own <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="theme-text underline">Google Cloud Console</a>, and copy the folder ID from your Drive shared-folder link.</p>
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div><label class="lbl">Google Client ID</label><input id="s-cloud-client-id" type="text" class="inp font-mono" placeholder="xxxxxxxx.apps.googleusercontent.com" value="${escapeHtml(state.cloud.clientId||'')}"/></div>
+        <div><label class="lbl">Google API Key</label><input id="s-cloud-api-key" type="text" class="inp font-mono" placeholder="AIza..." value="${escapeHtml(state.cloud.apiKey||'')}"/></div>
+        <div class="sm:col-span-2"><label class="lbl">Target Shared Folder ID</label><input id="s-cloud-folder-id" type="text" class="inp font-mono" placeholder="1AbCDefGhIJkLmnOPqrsTUvwxYZ..." value="${escapeHtml(state.cloud.folderId||'')}"/></div>
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <button id="s-cloud-save" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">Save Configuration</button>
+        <button id="s-cloud-signin" class="px-4 py-2.5 rounded-xl cloud-signin-btn text-sm font-medium">${state.cloud.connected ? 'Sign Out' : 'Sign In with Google'}</button>
+        <button id="s-cloud-sync-now" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] ${state.cloud.connected?'':'hidden'}" ${state.cloud.connected?'':'disabled'}>Sync Now</button>
+        ${state.cloud.userEmail ? `<span class="text-xs text-[#8a8471]">Signed in as ${escapeHtml(state.cloud.userEmail)}</span>` : ''}
+      </div>
+      <p class="text-[11px] text-[#a89f85]">${state.cloud.lastSync ? 'Last synced ' + fmtDateTime(new Date(state.cloud.lastSync)) : 'Not yet synced with the shared folder.'}</p>
+    </section>
+
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
+      <p class="font-display font-semibold">Data Portability</p>
+      <div class="flex flex-wrap gap-3">
+        <button id="s-export" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">Export Data (.json)</button>
+        <label class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] cursor-pointer">
+          Import Data (.json)<input id="s-import" type="file" accept="application/json" class="hidden"/>
+        </label>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-3">
+      <div class="flex items-center justify-between">
+        <p class="font-display font-semibold">Version &amp; Change Log</p>
+        <div class="flex items-center gap-2">
+          <span class="font-mono text-sm theme-text font-semibold">v${state.meta.version}</span>
+          <button id="s-whatsnew" class="text-xs px-3 py-1.5 rounded-lg theme-bg text-white font-medium">Download WhatsNew.txt</button>
+        </div>
+      </div>
+      <div class="max-h-72 overflow-y-auto scroll-thin">${changelogHtml}</div>
+    </section>
+  </div>`;
+}
+
+function renderPrintView(){
+  const rows = sortedFilteredAssets();
+  const previewRows = rows.slice(0, 8);
+  return `
+  <div class="space-y-5 max-w-3xl">
+    <div>
+      <h1 class="font-display text-2xl font-semibold">Print &amp; PDF Export</h1>
+      <p class="text-sm text-[#8a8471] mt-0.5">Filter and sort the inventory manifest, preview it, then print or download.</p>
+    </div>
+
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div>
+          <label class="lbl">Filter by Location</label>
+          <select id="p-location" class="inp">
+            <option value="all" ${state.printSelection.location==='all'?'selected':''}>All Locations</option>
+            ${LOCATIONS.map(l=>`<option value="${l.name}" ${state.printSelection.location===l.name?'selected':''}>${l.name}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="lbl">Sort By</label>
+          <select id="p-sort" class="inp">
+            <option value="name" ${state.printSelection.sortBy==='name'?'selected':''}>Item Name</option>
+            <option value="assetNumber" ${state.printSelection.sortBy==='assetNumber'?'selected':''}>Asset Number</option>
+            <option value="category" ${state.printSelection.sortBy==='category'?'selected':''}>Category</option>
+            <option value="location" ${state.printSelection.sortBy==='location'?'selected':''}>Location</option>
+            <option value="condition" ${state.printSelection.sortBy==='condition'?'selected':''}>Condition</option>
+          </select>
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <button id="p-view" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] flex items-center gap-2">${iconEye()} View PDF</button>
+        <button id="p-print" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">Print Full Manifest</button>
+        <button id="p-pdf" class="px-4 py-2.5 rounded-xl theme-bg text-white text-sm font-medium">Download Full PDF</button>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5">
+      <p class="text-xs font-semibold uppercase tracking-wider text-[#a89f85] mb-3">Manifest Preview — ${rows.length} item${rows.length===1?'':'s'} ${state.printSelection.location==='all'?'(all locations)':'in '+escapeHtml(state.printSelection.location)}</p>
+      ${rows.length ? `<div class="overflow-x-auto">
+        <table class="w-full text-xs min-w-[600px]">
+          <thead><tr class="text-left text-[11px] uppercase tracking-wider text-[#a89f85] border-b border-[#EFEBDD]">
+            <th class="py-2 pr-3">Asset #</th><th class="py-2 pr-3">Name</th><th class="py-2 pr-3">Category</th><th class="py-2 pr-3">Location</th><th class="py-2 pr-3">Qty</th><th class="py-2 pr-3">Condition</th>
+          </tr></thead>
+          <tbody>
+            ${previewRows.map(r=>{
+              const c = condMeta(r.condition);
+              return `<tr class="border-b border-[#F5F2E8] last:border-0">
+                <td class="py-2 pr-3 font-mono">${r.assetNumber}</td><td class="py-2 pr-3">${escapeHtml(r.name)}</td>
+                <td class="py-2 pr-3">${escapeHtml(r.category)}</td><td class="py-2 pr-3">${escapeHtml(r.location)}</td>
+                <td class="py-2 pr-3 font-mono">${r.qty}</td><td class="py-2 pr-3"><span class="px-2 py-0.5 rounded-full ${c.cls}">${r.condition}</span></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+        ${rows.length > previewRows.length ? `<p class="text-[11px] text-[#a89f85] mt-2">+ ${rows.length - previewRows.length} more item${rows.length-previewRows.length===1?'':'s'} — use View PDF or Download to see the full manifest.</p>` : ''}
+      </div>` : emptyState('Nothing to export', 'No assets match this location filter yet.')}
+    </section>
+  </div>`;
+}
+
+function bindSettingsEvents(){
+  const bind = (id, ev, fn)=>{ const el = document.getElementById(id); if(el) el.addEventListener(ev, fn); };
+
+  bind('s-name','input', debounce(async e=>{ state.settings.companyName=e.target.value; document.getElementById('sidebar-company-name').textContent = e.target.value||'Company'; renderLogo(); await saveSettingsToDB(); updateA4Preview(); },200));
+  bind('s-phone','input', debounce(async e=>{ state.settings.phone=e.target.value; await saveSettingsToDB(); },200));
+  bind('s-address','input', debounce(async e=>{ state.settings.address=e.target.value; await saveSettingsToDB(); },200));
+  bind('s-email','input', debounce(async e=>{ state.settings.email=e.target.value; await saveSettingsToDB(); },200));
+  bind('s-website','input', debounce(async e=>{ state.settings.website=e.target.value; await saveSettingsToDB(); },200));
+
+  const catNameInput = document.getElementById('s-cat-name');
+  const catCodePreview = document.getElementById('s-cat-code-preview');
+  if(catNameInput){
+    catNameInput.addEventListener('input', ()=>{
+      catCodePreview.value = catNameInput.value.trim() ? deriveCategoryCode(catNameInput.value) : '';
+    });
+    catNameInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); document.getElementById('s-cat-add').click(); } });
+  }
+  bind('s-cat-add','click', async ()=>{
+    const name = (catNameInput.value||'').trim();
+    if(!name){ showToast('Enter a category name.','error'); return; }
+    if(CATEGORIES.some(c=>c.name.toLowerCase()===name.toLowerCase())){
+      showToast('That category already exists.','error'); return;
+    }
+    const code = deriveCategoryCode(name);
+    CATEGORIES.push({ code, name });
+    await saveCategories();
+    showToast(`Category "${name}" added (${code}).`);
+    render();
+  });
+
+  document.querySelectorAll('.curr-btn').forEach(b=>b.addEventListener('click', async ()=>{
+    state.settings.currency = b.getAttribute('data-currency');
+    await saveSettingsToDB(); showToast('Currency updated.'); render();
+  }));
+
+  bind('s-logo-file','change', async (e)=>{
+    const file = e.target.files[0]; if(!file) return;
+    const uri = await compressImageFile(file);
+    state.settings.logo = uri;
+    await saveSettingsToDB(); renderLogo(); showToast('Logo updated.'); render();
+  });
+  bind('s-logo-remove','click', async ()=>{
+    state.settings.logo = null; await saveSettingsToDB(); renderLogo(); showToast('Logo removed.','info'); render();
+  });
+
+  bind('s-color-picker','input', async (e)=>{
+    const hex = e.target.value;
+    document.getElementById('s-color-hex').value = hex;
+    applyTheme(hex); state.settings.themeColor = hex; await saveSettingsToDB(); updateA4Preview();
+  });
+  bind('s-color-hex','keydown', async (e)=>{
+    if(e.key==='Enter'){
+      const hex = e.target.value.trim();
+      if(/^#([0-9a-fA-F]{6})$/.test(hex)){
+        document.getElementById('s-color-picker').value = hex;
+        applyTheme(hex); state.settings.themeColor = hex; await saveSettingsToDB(); updateA4Preview();
+        showToast('Theme color updated.');
+      } else showToast('Enter a valid hex color, e.g. #4C9D38','error');
+    }
+  });
+
+  bind('s-sidebar-color-picker','input', async (e)=>{
+    const hex = e.target.value;
+    document.getElementById('s-sidebar-color-hex').value = hex;
+    applySidebarColor(hex); state.settings.sidebarColor = hex; await saveSettingsToDB();
+  });
+  bind('s-sidebar-color-hex','keydown', async (e)=>{
+    if(e.key==='Enter'){
+      const hex = e.target.value.trim();
+      if(/^#([0-9a-fA-F]{6})$/.test(hex)){
+        document.getElementById('s-sidebar-color-picker').value = hex;
+        applySidebarColor(hex); state.settings.sidebarColor = hex; await saveSettingsToDB();
+        showToast('Menu bar color updated.');
+      } else showToast('Enter a valid hex color, e.g. #1C2128','error');
+    }
+  });
+
+  bind('s-dark-toggle','click', async ()=>{
+    state.settings.darkMode = !state.settings.darkMode;
+    applyDarkMode(state.settings.darkMode);
+    await saveSettingsToDB();
+    render();
+  });
+
+  bind('s-export','click', exportAllData);
+  bind('s-import','change', importAllData);
+  bind('s-whatsnew','click', downloadWhatsNew);
+
+  bind('s-cloud-save','click', async ()=>{
+    state.cloud.clientId = (document.getElementById('s-cloud-client-id').value||'').trim();
+    state.cloud.apiKey = (document.getElementById('s-cloud-api-key').value||'').trim();
+    state.cloud.folderId = (document.getElementById('s-cloud-folder-id').value||'').trim();
+    await saveCloudConfigToDB();
+    showToast('Cloud connection settings saved.');
+  });
+  bind('s-cloud-signin','click', ()=>{ state.cloud.connected ? cloudSignOut() : cloudSignIn(); });
+  bind('s-cloud-sync-now','click', ()=>cloudManualSync());
+}
+
+function bindPrintViewEvents(){
+  const bind = (id, ev, fn)=>{ const el = document.getElementById(id); if(el) el.addEventListener(ev, fn); };
+  bind('p-location','change', e=>{ state.printSelection.location = e.target.value; render(); });
+  bind('p-sort','change', e=>{ state.printSelection.sortBy = e.target.value; render(); });
+  bind('p-view','click', ()=>viewManifestPdf());
+  bind('p-print','click', ()=>printManifest(false));
+  bind('p-pdf','click', ()=>printManifest(true));
+}
+
+/* ---------------------------------------------------------------------------
+   18. IMPORT / EXPORT (full DB JSON backup)
+--------------------------------------------------------------------------- */
+async function exportAllData(){
+  const payload = {
+    exportedAt: nowISO(),
+    version: state.meta.version,
+    assets: state.assets,
+    history: state.history,
+    settings: state.settings,
+    categories: CATEGORIES,
+    meta: { version: state.meta.version, changelog: state.meta.changelog }
+  };
+  const blob = new Blob([JSON.stringify(payload,null,2)], { type:'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `gaia-lake-assets-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  showToast('Backup exported.');
+}
+async function importAllData(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if(!data || !Array.isArray(data.assets)) throw new Error('Invalid backup file structure.');
+
+    const ok = await askConfirm('Import backup?', 'This will replace all current assets, history, and settings with the backup contents.');
+    if(!ok) return;
+
+    await idbClear('assets'); await idbClear('history'); await idbClear('settings'); await idbClear('meta');
+
+    for(const a of data.assets) await idbPut('assets', a);
+    for(const h of (data.history||[])) await idbPut('history', h);
+    if(data.settings) await idbPut('settings', Object.assign({key:'main'}, data.settings));
+    const importedCategories = Array.isArray(data.categories) && data.categories.length ? data.categories : DEFAULT_CATEGORIES.map(c=>Object.assign({},c));
+    await idbPut('meta', { key:'categories', list: importedCategories });
+    CATEGORIES = importedCategories;
+    const metaVersion = data.meta && data.meta.version ? data.meta.version : '1.1';
+    const metaChangelog = data.meta && data.meta.changelog ? data.meta.changelog : DEFAULT_CHANGELOG;
+    await idbPut('meta', { key:'version', version: metaVersion, changelog: metaChangelog });
+    // rebuild counters from imported asset numbers so future numbering doesn't collide
+    const counters = { key:'counters', values:{} };
+    data.assets.forEach(a=>{
+      const parts = (a.assetNumber||'').split('-');
+      if(parts.length===3){
+        const prefix = parts[0]+'-'+parts[1]+'-';
+        const n = parseInt(parts[2],10)||0;
+        counters.values[prefix] = Math.max(counters.values[prefix]||0, n);
+      }
+    });
+    await idbPut('meta', counters);
+
+    await loadAllData();
+    showToast('Backup imported successfully.');
+    navigateTo('dashboard');
+  }catch(err){
+    showToast('Import failed: '+err.message,'error');
+  }
+  e.target.value = '';
+}
+
+/* ---------------------------------------------------------------------------
+   18b. CLOUD SYNC — GOOGLE DRIVE LIVE-SYNC (Strategy 2)
+   Centralized cloud storage layered on top of the existing IndexedDB layer.
+   IndexedDB remains the fast local read/write cache; this module mirrors
+   every change to a single master JSON file (gaia_lake_inventory.json) in
+   the user's own Google Drive shared folder, and pulls remote changes made
+   by other authorized devices. Nothing here alters the CSS layout, print
+   engine, version tracking, or image compression logic above.
+--------------------------------------------------------------------------- */
+const CLOUD_FILE_NAME = 'gaia_lake_inventory.json';
+const CLOUD_SCOPES = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email';
+const CLOUD_POLL_MS = 20000;
+
+let gisTokenClient = null;
+let cloudPushTimer = null;
+let cloudPollTimer = null;
+let cloudRefreshTimer = null;
+
+function ensureGisReady(){
+  return typeof google !== 'undefined' && google.accounts && google.accounts.oauth2;
+}
+
+async function loadCloudConfig(){
+  const c = await idbGet('settings','cloud');
+  if(c){
+    state.cloud.clientId = c.clientId || '';
+    state.cloud.apiKey = c.apiKey || '';
+    state.cloud.folderId = c.folderId || '';
+    state.cloud.fileId = c.fileId || null;
+  }
+}
+async function saveCloudConfigToDB(){
+  await idbPut('settings', {
+    key:'cloud', clientId: state.cloud.clientId, apiKey: state.cloud.apiKey,
+    folderId: state.cloud.folderId, fileId: state.cloud.fileId
+  });
+}
+
+/* ---- Sidebar widget + offline banner ------------------------------------- */
+function renderCloudSidebarHtml(){
+  const c = state.cloud;
+  if(c.connected){
+    return `<div class="flex items-center gap-2 px-1 mb-2 text-[11px] sidebar-muted">
+        <span class="cloud-dot ${c.syncing?'busy':'on'}" id="cloud-dot-sidebar"></span>
+        <span class="truncate flex-1">${c.syncing?'Syncing…':'Live-synced'}${c.userEmail?' · '+escapeHtml(c.userEmail):''}</span>
+        <button data-cloud-refresh class="p-1 rounded hover:bg-white/10 shrink-0" title="Sync now" aria-label="Sync now">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-2.64-6.36M21 3v6h-6"/></svg>
+        </button>
+      </div>
+      <button data-cloud-signout class="w-full text-[12px] px-3 py-2 rounded-lg border sidebar-border sidebar-item text-center">Sign Out</button>`;
+  }
+  return `<button data-cloud-signin class="w-full flex items-center justify-center gap-2 text-[12.5px] font-medium px-3 py-2.5 rounded-lg cloud-signin-btn">
+      <svg width="15" height="15" viewBox="0 0 24 24"><path fill="#fff" d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 16.25 5 12c0-4.1 3.2-7.27 7.2-7.27 3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10 5.35 0 9.25-3.67 9.25-9.09 0-1.15-.15-1.81-.15-1.81z"/></svg>
+      Sign In with Google
+    </button>
+    <p class="text-[10.5px] sidebar-muted mt-1.5 px-1">Offline — connect your Drive shared folder in Settings.</p>`;
+}
+function renderCloudSidebar(){
+  const html = renderCloudSidebarHtml();
+  const a = document.getElementById('cloud-sidebar-slot'); if(a) a.innerHTML = html;
+  const b = document.getElementById('cloud-sidebar-slot-mobile'); if(b) b.innerHTML = html;
+  document.querySelectorAll('[data-cloud-signin]').forEach(el=>el.addEventListener('click', cloudSignIn));
+  document.querySelectorAll('[data-cloud-signout]').forEach(el=>el.addEventListener('click', cloudSignOut));
+  document.querySelectorAll('[data-cloud-refresh]').forEach(el=>el.addEventListener('click', cloudManualSync));
+}
+function updateCloudBanner(){
+  const banner = document.getElementById('cloud-offline-banner');
+  if(!banner) return;
+  const show = !state.cloud.connected || !navigator.onLine;
+  banner.classList.toggle('hidden', !show);
+  banner.classList.toggle('flex', show);
+}
+function setCloudStatus(kind, text){
+  const dot = document.getElementById('cloud-status-dot');
+  const label = document.getElementById('cloud-status-text');
+  if(dot) dot.className = 'cloud-dot ' + kind;
+  if(label) label.textContent = text;
+  const sideDot = document.getElementById('cloud-dot-sidebar');
+  if(sideDot) sideDot.className = 'cloud-dot ' + kind;
+}
+
+/* ---- OAuth (Google Identity Services) ------------------------------------ */
+function attemptSilentCloudSignIn(){
+  if(!state.cloud.clientId || !state.cloud.folderId){ updateCloudBanner(); return; }
+  let tries = 0;
+  const poll = setInterval(()=>{
+    tries++;
+    if(ensureGisReady()){
+      clearInterval(poll);
+      try{
+        gisTokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: state.cloud.clientId, scope: CLOUD_SCOPES,
+          callback: onCloudTokenResponse,
+          error_callback: ()=>{ updateCloudBanner(); }
+        });
+        gisTokenClient.__clientId = state.cloud.clientId;
+        gisTokenClient.requestAccessToken({ prompt:'none' });
+      }catch(e){ updateCloudBanner(); }
+    } else if(tries > 25){ clearInterval(poll); updateCloudBanner(); }
+  }, 200);
+}
+function cloudSignIn(){
+  if(!state.cloud.clientId || !state.cloud.folderId){
+    showToast('Enter and save your Google Client ID and Shared Folder ID in Settings first.','error');
+    navigateTo('settings'); return;
+  }
+  if(!ensureGisReady()){
+    showToast('Google Sign-In library is still loading — please try again in a moment.','error'); return;
+  }
+  if(!gisTokenClient || gisTokenClient.__clientId !== state.cloud.clientId){
+    gisTokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: state.cloud.clientId, scope: CLOUD_SCOPES,
+      callback: onCloudTokenResponse,
+      error_callback: (err)=>{ showToast('Google Sign-In failed: '+(err&&err.type?err.type:'unknown error'),'error'); }
+    });
+    gisTokenClient.__clientId = state.cloud.clientId;
+  }
+  gisTokenClient.requestAccessToken({ prompt:'consent' });
+}
+async function onCloudTokenResponse(resp){
+  if(!resp || !resp.access_token){ showToast('Google Sign-In did not return an access token.','error'); return; }
+  state.cloud.accessToken = resp.access_token;
+  state.cloud.tokenExpiresAt = Date.now() + (Number(resp.expires_in||3600)*1000) - 60000;
+  state.cloud.connected = true;
+  scheduleTokenRefresh();
+  try{
+    const profile = await driveFetchJson('https://www.googleapis.com/oauth2/v3/userinfo');
+    state.cloud.userEmail = profile && profile.email ? profile.email : null;
+  }catch(e){ /* non-fatal — email is cosmetic only */ }
+  showToast('Signed in to Google Drive.');
+  await cloudInitialConnect();
+}
+function scheduleTokenRefresh(){
+  clearTimeout(cloudRefreshTimer);
+  const ms = Math.max(5000, state.cloud.tokenExpiresAt - Date.now());
+  cloudRefreshTimer = setTimeout(()=>{ if(gisTokenClient) gisTokenClient.requestAccessToken({ prompt:'' }); }, ms);
+}
+function cloudSignOut(){
+  try{ if(state.cloud.accessToken && ensureGisReady()) google.accounts.oauth2.revoke(state.cloud.accessToken, ()=>{}); }catch(e){}
+  state.cloud.connected = false; state.cloud.accessToken = null; state.cloud.userEmail = null;
+  clearTimeout(cloudRefreshTimer); clearInterval(cloudPollTimer);
+  setCloudStatus('off','Offline');
+  showToast('Signed out of Google Drive.','info');
+  render();
+}
+
+/* ---- Drive REST helpers (fetch + Bearer token; no gapi.client needed) ---- */
+async function driveFetchJson(url, opts){
+  opts = opts || {};
+  const headers = Object.assign({}, opts.headers||{}, { Authorization: 'Bearer '+state.cloud.accessToken });
+  const res = await fetch(url, Object.assign({}, opts, { headers }));
+  if(!res.ok){
+    const errText = await res.text().catch(()=> '');
+    throw new Error(`Drive API ${res.status}: ${errText.slice(0,200)}`);
+  }
+  const ct = res.headers.get('content-type')||'';
+  return ct.includes('application/json') ? res.json() : res.text();
+}
+async function findMasterFile(){
+  const q = encodeURIComponent(`name='${CLOUD_FILE_NAME}' and '${state.cloud.folderId}' in parents and trashed=false`);
+  const data = await driveFetchJson(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)&spaces=drive`);
+  return (data.files && data.files[0]) || null;
+}
+async function createMasterFile(payload){
+  const boundary = 'gaiaLakeBoundary' + Date.now();
+  const metadata = { name: CLOUD_FILE_NAME, parents:[state.cloud.folderId], mimeType:'application/json' };
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n` +
+    `--${boundary}--`;
+  return driveFetchJson('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime', {
+    method:'POST', headers:{ 'Content-Type': `multipart/related; boundary=${boundary}` }, body
+  });
+}
+async function updateMasterFile(fileId, payload){
+  return driveFetchJson(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media&fields=id,modifiedTime`, {
+    method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload)
+  });
+}
+async function downloadMasterFile(fileId){
+  return driveFetchJson(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
+}
+async function getMasterFileMeta(fileId){
+  return driveFetchJson(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=modifiedTime`);
+}
+
+/* ---- Payload build / apply ------------------------------------------------ */
+async function buildCloudPayload(){
+  const counters = await idbGet('meta','counters');
+  return {
+    savedAt: nowISO(),
+    assets: state.assets,
+    history: state.history,
+    settings: state.settings,
+    categories: CATEGORIES,
+    meta: { version: state.meta.version, changelog: state.meta.changelog },
+    counters: counters ? counters.values : {}
+  };
+}
+async function applyRemoteData(remote){
+  if(!remote || !Array.isArray(remote.assets)) return;
+  state.cloud.applyingRemote = true;
+  try{
+    await idbClear('assets'); await idbClear('history'); await idbClear('settings'); await idbClear('meta');
+    for(const a of remote.assets) await idbPut('assets', a);
+    for(const h of (remote.history||[])) await idbPut('history', h);
+    if(remote.settings) await idbPut('settings', Object.assign({key:'main'}, remote.settings));
+    const cats = Array.isArray(remote.categories) && remote.categories.length ? remote.categories : DEFAULT_CATEGORIES.map(c=>Object.assign({},c));
+    await idbPut('meta', { key:'categories', list: cats });
+    const metaVersion = remote.meta && remote.meta.version ? remote.meta.version : state.meta.version;
+    const metaChangelog = remote.meta && remote.meta.changelog ? remote.meta.changelog : state.meta.changelog;
+    await idbPut('meta', { key:'version', version: metaVersion, changelog: metaChangelog });
+    await idbPut('meta', { key:'counters', values: remote.counters || {} });
+    await idbPut('settings', {
+      key:'cloud', clientId: state.cloud.clientId, apiKey: state.cloud.apiKey,
+      folderId: state.cloud.folderId, fileId: state.cloud.fileId
+    });
+    await loadAllData();
+    render();
+  } finally {
+    state.cloud.applyingRemote = false;
+  }
+}
+
+/* ---- Connect / push / poll ------------------------------------------------ */
+async function cloudInitialConnect(){
+  updateCloudBanner(); renderCloudSidebar();
+  try{
+    setCloudStatus('busy','Connecting…');
+    const existing = await findMasterFile();
+    if(existing){
+      state.cloud.fileId = existing.id;
+      await saveCloudConfigToDB();
+      const remote = await downloadMasterFile(existing.id);
+      await applyRemoteData(remote);
+      state.cloud.lastRemoteModified = existing.modifiedTime;
+      showToast('Loaded the live database from Google Drive.');
+    } else {
+      const payload = await buildCloudPayload();
+      const created = await createMasterFile(payload);
+      state.cloud.fileId = created.id;
+      state.cloud.lastRemoteModified = created.modifiedTime;
+      await saveCloudConfigToDB();
+      showToast(`Created ${CLOUD_FILE_NAME} in the shared folder.`);
+    }
+    state.cloud.lastSync = nowISO();
+    setCloudStatus('on','Synced');
+    clearInterval(cloudPollTimer);
+    cloudPollTimer = setInterval(pollCloud, CLOUD_POLL_MS);
+  }catch(err){
+    setCloudStatus('off','Error');
+    showToast('Google Drive connection failed: '+err.message,'error');
+  }
+  render();
+}
+function scheduleCloudPush(){
+  if(typeof state === 'undefined' || !state.cloud) return;
+  if(!state.cloud.connected || !state.cloud.fileId || state.cloud.applyingRemote){ if(state.cloud) state.cloud.dirty = true; return; }
+  clearTimeout(cloudPushTimer);
+  cloudPushTimer = setTimeout(()=>{ pushToCloud(); }, 500);
+}
+async function pushToCloud(){
+  if(!state.cloud.connected || !state.cloud.fileId || state.cloud.applyingRemote) return;
+  try{
+    state.cloud.syncing = true; setCloudStatus('busy','Syncing…'); renderCloudSidebar();
+    const payload = await buildCloudPayload();
+    const updated = await updateMasterFile(state.cloud.fileId, payload);
+    state.cloud.lastRemoteModified = updated.modifiedTime;
+    state.cloud.lastSync = nowISO();
+    state.cloud.dirty = false;
+    setCloudStatus('on','Synced');
+  }catch(err){
+    setCloudStatus('off','Sync error');
+    showToast('Cloud sync failed: '+err.message,'error');
+  } finally {
+    state.cloud.syncing = false; renderCloudSidebar();
+  }
+}
+async function pollCloud(){
+  if(!state.cloud.connected || !state.cloud.fileId || state.cloud.syncing || state.cloud.applyingRemote) return;
+  try{
+    const meta = await getMasterFileMeta(state.cloud.fileId);
+    if(meta.modifiedTime && meta.modifiedTime !== state.cloud.lastRemoteModified){
+      const remote = await downloadMasterFile(state.cloud.fileId);
+      await applyRemoteData(remote);
+      state.cloud.lastRemoteModified = meta.modifiedTime;
+      state.cloud.lastSync = nowISO();
+      showToast('Synced changes from another device.','info');
+    }
+  }catch(err){
+    // Transient poll errors (e.g. expired token mid-refresh) are silent;
+    // the next successful poll or manual Sync Now will recover.
+  }
+}
+async function cloudManualSync(){
+  if(!state.cloud.connected){ showToast('Sign in to Google Drive first.','error'); return; }
+  await pollCloud();
+  if(state.cloud.dirty) await pushToCloud();
+  showToast('Sync check complete.');
+}
+
+/* ---------------------------------------------------------------------------
+   19. PRINT / PDF ENGINE
+--------------------------------------------------------------------------- */
+function sortedFilteredAssets(){
+  let rows = state.assets.slice();
+  if(state.printSelection.location !== 'all'){
+    rows = rows.filter(a=>a.location===state.printSelection.location);
+  }
+  const key = state.printSelection.sortBy;
+  rows.sort((a,b)=>{
+    const av = key==='assetNumber' ? a.assetNumber : (a[key]||'');
+    const bv = key==='assetNumber' ? b.assetNumber : (b[key]||'');
+    return String(av).localeCompare(String(bv));
+  });
+  return rows;
+}
+
+function buildManifestHtml(rows){
+  const logo = state.settings.logo ? `<img src="${state.settings.logo}" class="h-12 object-contain"/>` : '';
+  const groups = {};
+  rows.forEach(r=>{ (groups[r.assetNumber]=groups[r.assetNumber]||[]).push(r); });
+
+  let body = `<div class="flex items-start justify-between border-b-2 pb-4 mb-6" style="border-color:var(--theme-color)">
+      <div class="flex items-center gap-3">${logo}<div>
+        <p class="font-display font-bold text-lg">${escapeHtml(state.settings.companyName)}</p>
+        <p class="text-[10px] text-[#8a8471]">${escapeHtml(state.settings.address)}</p>
+      </div></div>
+      <div class="text-right"><p class="text-[10px] uppercase font-semibold" style="color:var(--theme-color)">Full Inventory Manifest</p>
+      <p class="text-[10px] text-[#8a8471]">${state.printSelection.location==='all'?'All Locations':escapeHtml(state.printSelection.location)}</p></div>
+    </div>
+    <table class="w-full text-[10px] border-collapse">
+      <thead><tr class="text-left border-b-2" style="border-color:var(--theme-color)">
+        <th class="py-1.5 pr-2">Asset #</th><th class="py-1.5 pr-2">Name</th><th class="py-1.5 pr-2">Category</th>
+        <th class="py-1.5 pr-2">Location</th><th class="py-1.5 pr-2">Qty</th><th class="py-1.5 pr-2">Condition</th><th class="py-1.5 pr-2">Updated</th>
+      </tr></thead><tbody>`;
+  rows.forEach(r=>{
+    body += `<tr class="border-b border-[#EFEBDD]"><td class="py-1 pr-2 font-mono">${r.assetNumber}</td><td class="py-1 pr-2">${escapeHtml(r.name)}</td>
+      <td class="py-1 pr-2">${escapeHtml(r.category)}</td><td class="py-1 pr-2">${escapeHtml(r.location)}</td>
+      <td class="py-1 pr-2">${r.qty}</td><td class="py-1 pr-2">${r.condition}</td><td class="py-1 pr-2">${fmtDate(r.lastUpdated)}</td></tr>`;
+  });
+  body += `</tbody></table>`;
+  body += a4FooterHtml(1,1);
+  return body;
+}
+
+function printSingle(item){
+  renderPrintRoot(a4TemplateHtml(item, true));
+  setTimeout(()=>window.print(), 150);
+}
+function printManifest(asPdf){
+  const rows = sortedFilteredAssets();
+  const html = buildManifestHtml(rows);
+  if(!asPdf){
+    renderPrintRoot(html);
+    setTimeout(()=>window.print(), 150);
+  } else {
+    exportPdfFromHtml(html, `inventory-manifest-${new Date().toISOString().slice(0,10)}.pdf`, 'download');
+  }
+}
+function viewManifestPdf(){
+  const rows = sortedFilteredAssets();
+  if(!rows.length){ showToast('No items match this filter yet.','error'); return; }
+  const html = buildManifestHtml(rows);
+  exportPdfFromHtml(html, `inventory-manifest-${new Date().toISOString().slice(0,10)}.pdf`, 'view');
+}
+function renderPrintRoot(html){
+  let root = document.getElementById('print-root');
+  if(!root){
+    root = document.createElement('div');
+    root.id = 'print-root';
+    document.body.appendChild(root);
+  }
+  root.innerHTML = `<div class="p-10 bg-white">${html}</div>`;
+}
+async function exportSinglePdf(item){
+  await exportPdfFromHtml(a4TemplateHtml(item, true), `${item.assetNumber||'asset'}-manifest.pdf`, 'download');
+}
+async function downloadSummaryCardImage(){
+  const el = document.getElementById('dash-summary-card');
+  if(!el) return;
+  try{
+    const canvas = await html2canvas(el, {
+      scale:2, backgroundColor:'#ffffff',
+      ignoreElements: (node)=> !!(node.classList && node.classList.contains('no-capture'))
+    });
+    const link = document.createElement('a');
+    link.download = `assets-inventory-summary-${dashPeriod}-${new Date().toISOString().slice(0,10)}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    showToast('Summary image downloaded.');
+  }catch(err){
+    showToast('Could not generate image: '+err.message, 'error');
+  }
+}
+async function exportPdfFromHtml(html, filename, mode){
+  mode = mode || 'download';
+  renderPrintRoot(html);
+  const root = document.getElementById('print-root');
+  root.style.position='fixed'; root.style.left='-9999px'; root.style.top='0'; root.style.width='210mm';
+  root.classList.remove('hidden');
+  await new Promise(r=>setTimeout(r,80));
+  try{
+    const canvas = await html2canvas(root, { scale:2, useCORS:true, backgroundColor:'#ffffff' });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('p','mm','a4');
+    const pageWidth = 210, pageHeight = 297;
+    const imgWidth = pageWidth;
+    const imgHeight = canvas.height * imgWidth / canvas.width;
+    let heightLeft = imgHeight, position = 0, page = 1;
+    const totalPages = Math.max(1, Math.ceil(imgHeight/pageHeight));
+    pdf.addImage(canvas.toDataURL('image/jpeg',0.92), 'JPEG', 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+    while(heightLeft > 0){
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      page++;
+      pdf.addImage(canvas.toDataURL('image/jpeg',0.92), 'JPEG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+    if(mode==='view'){
+      const blobUrl = pdf.output('bloburl');
+      const win = window.open(blobUrl, '_blank');
+      if(!win){ showToast('Your browser blocked the preview pop-up — allow pop-ups to view the PDF.','error'); }
+      else showToast('PDF preview opened in a new tab. Nothing has been downloaded yet.','info');
+    } else {
+      pdf.save(filename);
+      showToast('PDF exported.');
+    }
+  }catch(err){
+    showToast('PDF export failed: '+err.message, 'error');
+  } finally {
+    root.style.position=''; root.style.left=''; root.style.width='';
+    root.innerHTML='';
+  }
+}
+window.addEventListener('afterprint', ()=>{ const r=document.getElementById('print-root'); if(r) r.innerHTML=''; });
+
+/* ---------------------------------------------------------------------------
+   20. SEED DATA
+--------------------------------------------------------------------------- */
+async function seedIfEmpty(){
+  const existing = await idbGetAll('assets');
+  if(existing.length) return;
+
+  const seedDefs = [
+    { location:'Manager Room', category:'Furniture', name:'Office Chairs', qty:4, condition:'Usable', price:45.00, vendor:'Kandy Furniture Co.' },
+    { location:'Main Kitchen', category:'Appliances', name:'Commercial Refrigerator', qty:1, condition:'Usable', price:1250.00, vendor:'ColdTech Lanka' },
+    { location:'Generator Room', category:'Utilities', name:'Backup Generator System 20kVA', qty:1, condition:'Usable', price:3800.00, vendor:'PowerGen Sri Lanka' },
+    { location:'Room 1', category:'Electronics', name:'Smart LED Television 43"', qty:1, condition:'Usable', price:320.00, vendor:'Softlogic Retail' },
+    { location:'Guest Pantry', category:'Linen', name:'Cotton Bath Towels', qty:12, condition:'Usable', price:8.50, vendor:'Textura Mills' },
+    { location:'Lobby', category:'Furniture', name:'Rattan Lounge Sofa Set', qty:2, condition:'Usable', price:410.00, vendor:'Moratuwa Woodcraft' },
+  ];
+
+  const nowIso = nowISO();
+  for(const def of seedDefs){
+    const assetNumber = await nextAssetNumber(def.location, def.category);
+    const entry = {
+      id: uuid(), assetNumber, name: def.name, category: def.category, location: def.location,
+      qty: def.qty, condition: def.condition, purchasePrice: def.price,
+      purchaseDate: nowIso.slice(0,10), vendor: def.vendor, notes:'', imageSrc:'',
+      lastUpdated: nowIso, createdAt: nowIso
+    };
+    await idbPut('assets', entry);
+    state.assets.push(entry);
+    await logHistory('created', entry);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   21. BOOT
+--------------------------------------------------------------------------- */
+async function loadAllData(){
+  state.assets = await idbGetAll('assets');
+  state.history = (await idbGetAll('history')).sort((a,b)=> new Date(b.date)-new Date(a.date));
+  await loadCategories();
+  await loadSettings();
+  await loadCloudConfig();
+  await initMeta();
+}
+
+async function boot(){
+  try{
+    await openDB();
+    await loadAllData();
+    await seedIfEmpty();
+    render();
+    window.addEventListener('online', updateCloudBanner);
+    window.addEventListener('offline', updateCloudBanner);
+    attemptSilentCloudSignIn();
+  }catch(err){
+    document.getElementById('view-root').innerHTML = `<div class="bg-red-50 border border-red-200 text-red-700 rounded-xl p-6">
+      <p class="font-semibold mb-1">Failed to initialize local database.</p><p class="text-sm">${escapeHtml(err.message||String(err))}</p>
+    </div>`;
+  }
+}
+
+// Inject shared input/label utility classes (Tailwind CDN has no @apply at runtime, so add via a style tag)
+const utilStyle = document.createElement('style');
+utilStyle.textContent = `
+  .lbl{ display:block; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; color:#a89f85; margin-bottom:4px; }
+  .inp{ width:100%; border:1px solid #E2DFD3; border-radius:10px; padding:8px 12px; font-size:13.5px; background:#fff; }
+  .inp:focus{ border-color:var(--theme-color); }
+`;
+document.head.appendChild(utilStyle);
+
+boot();
+
+})();
+</script>
+</body>
+</html>
