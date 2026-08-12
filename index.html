@@ -13,10 +13,8 @@ or redistribution is strictly prohibited.
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-<title>Gaia Lake Assets Web App</title>
-
-<!-- Add your favicon link here -->
-    <link rel="icon" type="image/png" href="favicon.png">
+<title>Gaia Lake Bungalow — Assets &amp; Inventory Manager</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E" />
 
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -25,6 +23,8 @@ or redistribution is strictly prohibited.
      Workspace in Settings for the optional Google Drive live-sync feature. -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://apis.google.com/js/api.js" async defer></script>
+<!-- SheetJS — parses .xlsx / .xls / .csv files client-side for the Import from Excel feature. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
@@ -137,7 +137,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v1.4</span>
+      <span id="sidebar-version">v3.0</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -196,7 +196,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v1.4</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v3.0</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -215,6 +215,33 @@ or redistribution is strictly prohibited.
   </div>
 </div>
 
+<!-- ===================== BULK MOVE / RECATEGORIZE PICKER DIALOG ===================== -->
+<div id="bulk-picker-dialog" class="fixed inset-0 z-50 hidden items-center justify-center modal-backdrop no-print p-4">
+  <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
+    <p class="font-display font-semibold text-lg mb-1" id="bulk-picker-title">Move Selected Items</p>
+    <p class="text-sm text-[#635e4d] mb-4">Quantity is not affected — only the assignment changes, and each item gets a freshly generated Item Number.</p>
+    <label class="lbl">New value</label>
+    <select id="bulk-picker-select" class="inp"></select>
+    <div class="flex gap-3 justify-end mt-5">
+      <button id="bulk-picker-cancel" class="px-4 py-2 rounded-lg border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">Cancel</button>
+      <button id="bulk-picker-confirm" class="px-4 py-2 rounded-lg theme-bg text-white text-sm font-medium">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== EXCEL IMPORT PREVIEW DIALOG ===================== -->
+<div id="excel-import-dialog" class="fixed inset-0 z-50 hidden items-center justify-center modal-backdrop no-print p-4">
+  <div class="bg-white rounded-2xl p-6 max-w-lg w-full shadow-xl max-h-[85vh] overflow-y-auto scroll-thin">
+    <p class="font-display font-semibold text-lg mb-1">Confirm Spreadsheet Import</p>
+    <p class="text-sm text-[#635e4d] mb-4">Review what will be added before committing — this does not remove or overwrite any existing items.</p>
+    <div id="excel-import-summary" class="text-sm space-y-3"></div>
+    <div class="flex gap-3 justify-end mt-5">
+      <button id="excel-import-cancel" class="px-4 py-2 rounded-lg border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">Cancel</button>
+      <button id="excel-import-confirm" class="px-4 py-2 rounded-lg theme-bg text-white text-sm font-medium">Import Now</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ============================================================================
    GAIA LAKE BUNGALOW — ASSETS & INVENTORY MANAGER
@@ -226,7 +253,7 @@ or redistribution is strictly prohibited.
 /* ---------------------------------------------------------------------------
    0. STATIC CONFIG — locations, categories, conditions
 --------------------------------------------------------------------------- */
-const LOCATIONS = [
+let LOCATIONS = [
   { code:"R1",  name:"Room 1",         zone:"Guest Areas" },
   { code:"R2",  name:"Room 2",         zone:"Guest Areas" },
   { code:"R3",  name:"Room 3",         zone:"Guest Areas" },
@@ -244,6 +271,7 @@ const LOCATIONS = [
   { code:"ST1", name:"Staff room 1",   zone:"Staff & Management" },
   { code:"ST2", name:"Staff room 2",   zone:"Staff & Management" },
 ];
+const DEFAULT_LOCATIONS = LOCATIONS.map(l=>Object.assign({},l));
 const ZONES = ["Guest Areas","Operations","Staff & Management"];
 
 let CATEGORIES = [
@@ -265,6 +293,32 @@ function deriveCategoryCode(name){
     n++; code = (base.slice(0,2) + n).slice(0,3);
   }
   return code;
+}
+/* Same idea for a location code — derived from the first letters of each
+   significant word (e.g. "Upstairs Lounge" -> "UL"), falling back to a
+   numbered suffix if it collides with an existing code. */
+function deriveLocationCode(name){
+  const words = (name||'').replace(/[^a-zA-Z0-9\s]/g,'').trim().split(/\s+/).filter(Boolean);
+  let base;
+  if(words.length >= 2){
+    base = words.map(w=>w[0]).join('').toUpperCase().slice(0,4);
+  } else {
+    base = (words[0]||'LOC').slice(0,4).toUpperCase();
+  }
+  if(base.length < 2) base = (base + 'XX').slice(0,2);
+  let code = base, n = 1;
+  while(LOCATIONS.some(l=>l.code===code)){
+    n++; code = (base.slice(0,3) + n).slice(0,4);
+  }
+  return code;
+}
+/* Heuristic zone assignment for a location name we've never seen before —
+   used only by the Excel importer when auto-creating a new location. */
+function guessZoneForLocation(name){
+  const n = (name||'').toLowerCase();
+  if(/store|generator|kitchen|pantry/.test(n)) return 'Operations';
+  if(/staff|manager/.test(n)) return 'Staff & Management';
+  return 'Guest Areas';
 }
 
 const CONDITIONS = [
@@ -421,6 +475,23 @@ document.getElementById('confirm-cancel').addEventListener('click', ()=>{
   if(confirmResolver) confirmResolver(false);
 });
 
+document.getElementById('excel-import-cancel').addEventListener('click', ()=>{
+  document.getElementById('excel-import-dialog').classList.add('hidden');
+  document.getElementById('excel-import-dialog').classList.remove('flex');
+  pendingExcelImport = null;
+});
+document.getElementById('excel-import-confirm').addEventListener('click', async ()=>{
+  document.getElementById('excel-import-dialog').classList.add('hidden');
+  document.getElementById('excel-import-dialog').classList.remove('flex');
+  await commitExcelImport();
+});
+document.getElementById('bulk-picker-cancel').addEventListener('click', ()=>{
+  document.getElementById('bulk-picker-dialog').classList.add('hidden');
+  document.getElementById('bulk-picker-dialog').classList.remove('flex');
+  bulkPickerContext = null;
+});
+document.getElementById('bulk-picker-confirm').addEventListener('click', commitBulkPicker);
+
 /* Google Drive share-link -> embeddable direct-view URL converter.
    NOTE: Google Drive images only embed successfully when the file's sharing
    is set to "Anyone with the link" (Viewer). Even then, Google's classic
@@ -476,6 +547,36 @@ function compressImageFile(file){
 }
 
 /* ---------------------------------------------------------------------------
+   2b. HARDCODED GLOBAL CREDENTIALS & CONFIGURATION (production defaults)
+   These are baked into the source so managers never have to type them in.
+   The Admin (ADMIN_EMAIL below) can still override Cloud/Branding/Company
+   values from the Cloud Connection Workspace and Company Metadata panels in
+   Settings — anything explicitly saved there takes priority over these
+   defaults on future loads. Non-empty values already stored in a browser's
+   IndexedDB from before this update are left untouched.
+--------------------------------------------------------------------------- */
+const DEFAULT_CLOUD_CONFIG = {
+  clientId: '860897303640-a7oqu2mqjmqclani6vj96fnk50qd2kre.apps.googleusercontent.com',
+  apiKey:   'AIzaSyAUSaqro9KJzDugSrEK0PW3mxPSIzFXPXU',
+  folderId: '1x-1NAu5-kmOcGD-4Teq5Ppo7EMTralmw'
+};
+// Google Drive "view" links don't work as an <img src>; converted to the direct-content form.
+const DEFAULT_LOGO_URL = 'https://drive.google.com/uc?export=view&id=1bsN5z_QUDfAyaVKfjWVDAWPWdeOeUJxR';
+const DEFAULT_COMPANY = {
+  companyName: 'Gaia Lake Bungalow',
+  address: '3rd Mile Post, Kandalama, Dambulla, Sri Lanka',
+  phone: '+94 77 291 1501',
+  email: 'gaialakekandalama@gmail.com',
+  website: ''
+};
+// Only this signed-in Google account sees master configuration panels in Settings.
+const ADMIN_EMAIL = 'gaialakewebapps@gmail.com';
+function isAdminSession(){
+  return !!(state.cloud.connected && state.cloud.userEmail &&
+    state.cloud.userEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase());
+}
+
+/* ---------------------------------------------------------------------------
    3. GLOBAL STATE
 --------------------------------------------------------------------------- */
 const state = {
@@ -484,8 +585,9 @@ const state = {
   assets: [],                  // all line-items from IndexedDB
   history: [],
   settings: {
-    companyName:'Gaia Lake Kandalama', address:'3rd Mile Post, Kandalama, Sri Lanka', phone:'+94 77 291 1501', email:'gaialakekandalama@gmail.com', website:'',
-    currency:'LKR', logo:null, themeColor:'#4c9d38', sidebarColor:'#1c2128', darkMode:false
+    companyName: DEFAULT_COMPANY.companyName, address: DEFAULT_COMPANY.address,
+    phone: DEFAULT_COMPANY.phone, email: DEFAULT_COMPANY.email, website: DEFAULT_COMPANY.website,
+    currency:'LKR', logo: DEFAULT_LOGO_URL, themeColor:'#4c9d38', sidebarColor:'#1c2128', darkMode:false
   },
   meta: { version:'1.0', changelog:[] },
   editing: null,                // asset object currently in editor, or null (new)
@@ -493,8 +595,10 @@ const state = {
   splitMode: false,
   printSelection: { location:'all', sortBy:'name' },
   navExpanded: {},
+  selectMode: false,
+  selectedGroups: new Set(),
   cloud: {
-    clientId:'860897303640-a7oqu2mqjmqclani6vj96fnk50qd2kre.apps.googleusercontent.com', apiKey:'AIzaSyAUSaqro9KJzDugSrEK0PW3mxPSIzFXPXU', folderId:'1x-1NAu5-kmOcGD-4Teq5Ppo7EMTralmw',           // from Cloud Connection Workspace
+    clientId: DEFAULT_CLOUD_CONFIG.clientId, apiKey: DEFAULT_CLOUD_CONFIG.apiKey, folderId: DEFAULT_CLOUD_CONFIG.folderId,
     fileId:null,                                   // Drive file id of gaia_lake_inventory.json once known
     connected:false, userEmail:null,
     accessToken:null, tokenExpiresAt:0,
@@ -502,6 +606,8 @@ const state = {
     dirty:false,
   },
 };
+let lastBulkUndo = null;
+let bulkPickerContext = null;
 
 function assetGroups(){
   // group all line items by assetNumber
@@ -566,6 +672,12 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'3.0', date: nowISO(), type:'major', summary:'Hardcoded production credentials, permanent branding, and an Admin-only configuration lock.',
+    detail:'Google API Key, Client ID, and the target shared Drive Folder ID are now hardcoded into the app itself — no one needs to type them in for cloud sync to work, though an Admin can still override them from Settings if the credentials ever need to change. The company logo, name, address, phone, and email are baked in as the permanent defaults shown across the sidebar header, Settings, and printed A4 manifests, while any values you\'ve already customized are kept exactly as they are. Added an Admin Email Guard: only gaialakewebapps@gmail.com sees the Cloud Connection Workspace, Company Metadata & Logo panels, and the Bulk Import/Export & Data Portability tools in Settings — every other signed-in manager sees a clean "locked by the Administrator" notice in their place instead. Export as CSV was added alongside the existing Excel export for spreadsheet-tool compatibility. Added a one-tap "Refresh Cloud Data" button beside Sign Out in the sidebar so a manager who has been editing for a while can instantly pull in the latest updates from other devices.' },
+  { version:'2.0', date: nowISO(), type:'major', summary:'Excel export, safe bulk actions, and full Location/Category lifecycle management.',
+    detail:'Added Export as Excel (.xlsx) alongside the existing Excel/CSV import, so data can be shared with anyone who doesn\'t have web access via a simple import/export round-trip. Added a Danger Zone in Settings to Delete All Records in one confirmed action (History is preserved for audit) — handy right before a fresh bulk import. Locations and Categories can now be renamed directly in Settings: renaming instantly regenerates the Item Number on every affected record to reflect the new name, while the OLD Item Number is kept in History for audit and quantities are never touched; a one-step Undo is available immediately after. Locations/Categories can only be deleted once no current records use them, keeping the list to a practical minimum without losing audit history. Added a Select Items mode on each Location page for bulk actions — Move to Location and Change Category now update many records at once instead of one at a time, and Delete Selected removes a chosen batch with a warning. The Sub-category field is now a type-ahead that suggests existing values as you type. Fixed the Settings sidebar icon, which was rendering as a broken/partial gear — it\'s now the full gear-wheel icon used elsewhere in the app.' },
+  { version:'1.5', date: nowISO(), type:'major', summary:'Google Drive Live-Sync and one-click Excel/CSV bulk import.',
+    detail:'Added Strategy 2 cloud storage: sign in with Google from the sidebar, connect a shared Drive folder in Settings, and every device reads/writes the same live gaia_lake_inventory.json master file — changes push automatically on every edit and pull in for other authorized devices roughly every 20 seconds, with a manual Sync Now and a clear "Running Offline" banner when signed out. Added Bulk Import from Spreadsheet: upload an existing Excel/CSV file and the app maps flexible column headers (renamed or reordered columns still work), auto-generates a fresh Item Number for every row from its location and category, and auto-creates any category or location the sheet references that doesn\'t exist yet — with a preview-and-confirm step before anything is written, so existing records are never overwritten.' },
   { version:'1.4', date: nowISO(), type:'major', summary:'Dashboard rebuild, dark mode, and customizable sidebar color.',
     detail:'Set Damaged to #FFFF00 and In Repair to #FF8000 across badges and charts. Added a search bar to the Dashboard with a live results dropdown. Added an Information section with Last Updated Asset, Last New Item Received, and a Month/Year condition summary card titled "[Month/Year] Summary of Assets and Inventory" — screenshot-ready with its own Download PNG button for sharing reports. Compacted the All-Time condition breakdown into a single chip row and removed the redundant Locations grid (already covered by the sidebar) so the Overview fits one screen without scrolling on desktop. Added a dark, customizable sidebar (color picker in Settings) and a separate app-wide Dark Mode / Light Mode toggle. Fixed a new batch entry incorrectly inheriting its original group\'s creation date.' },
   { version:'1.3', date: nowISO(), type:'major', summary:'Image rendering fix, smarter split workflow, dedicated Print & Export page.',
@@ -578,14 +690,33 @@ const DEFAULT_CHANGELOG = [
     detail:'Launched the full Boutique Hotel Asset & Inventory Management App: 16-location inventory tracking, dual-image engine (local upload + Google Drive URL converter), split-condition workflow with live Total/Usable quantity calculators, live A4 print preview, history portal, configurable branding & theme color, JSON import/export, and PDF/print export engine.' }
 ];
 
+/* Versions shipped after a user's browser may have already initialized its
+   IndexedDB — applied on boot so existing installs pick up the changelog
+   entries (and version number) for updates they haven't loaded yet. */
+const MIGRATION_CHANGELOG = [
+  DEFAULT_CHANGELOG.find(c=>c.version==='1.5'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='2.0'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='3.0'),
+];
+
 async function initMeta(){
   let m = await idbGet('meta','version');
   if(!m){
-    m = { key:'version', version:'1.4', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'3.0', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
   state.meta.changelog = m.changelog || DEFAULT_CHANGELOG;
+  const known = new Set(state.meta.changelog.map(c=>c.version));
+  let changed = false;
+  for(const entry of MIGRATION_CHANGELOG){
+    if(entry && !known.has(entry.version)){
+      state.meta.changelog.unshift(entry);
+      state.meta.version = entry.version;
+      changed = true;
+    }
+  }
+  if(changed) await idbPut('meta', { key:'version', version: state.meta.version, changelog: state.meta.changelog });
   document.getElementById('sidebar-version').textContent = 'v'+state.meta.version;
   document.getElementById('footer-version').textContent = 'v'+state.meta.version;
 }
@@ -630,10 +761,50 @@ async function loadCategories(){
 async function saveCategories(){
   await idbPut('meta', { key:'categories', list: CATEGORIES });
 }
+async function loadLocations(){
+  const rec = await idbGet('meta','locations');
+  if(rec && Array.isArray(rec.list) && rec.list.length){
+    LOCATIONS = rec.list;
+  } else {
+    await idbPut('meta', { key:'locations', list: LOCATIONS });
+  }
+}
+async function saveLocations(){
+  await idbPut('meta', { key:'locations', list: LOCATIONS });
+}
+/* Find-or-create helpers, used by the Excel importer (and reusable by any
+   future bulk-import path) so new Category/Location values encountered in a
+   sheet are provisioned exactly like the manual "Add Category" flow does. */
+async function ensureCategory(name){
+  name = (name||'').trim();
+  if(!name) return null;
+  let existing = CATEGORIES.find(c=>c.name.toLowerCase()===name.toLowerCase());
+  if(existing) return existing;
+  const created = { code: deriveCategoryCode(name), name };
+  CATEGORIES.push(created);
+  await saveCategories();
+  return created;
+}
+async function ensureLocation(name, zoneHint){
+  name = (name||'').trim();
+  if(!name) return null;
+  let existing = LOCATIONS.find(l=>l.name.toLowerCase()===name.toLowerCase());
+  if(existing) return existing;
+  const created = { code: deriveLocationCode(name), name, zone: zoneHint || guessZoneForLocation(name) };
+  LOCATIONS.push(created);
+  await saveLocations();
+  return created;
+}
 
 async function loadSettings(){
   const s = await idbGet('settings','main');
-  if(s){ state.settings = Object.assign(state.settings, s); }
+  if(s){
+    // Backfill any blank field with the hardcoded production default —
+    // an Admin's explicitly saved value (non-empty) is always kept as-is.
+    Object.keys(DEFAULT_COMPANY).forEach(k=>{ if(!s[k]) s[k] = DEFAULT_COMPANY[k]; });
+    if(!s.logo) s.logo = DEFAULT_LOGO_URL;
+    state.settings = Object.assign(state.settings, s);
+  }
   else { await idbPut('settings', Object.assign({key:'main'}, state.settings)); }
   applyTheme(state.settings.themeColor);
   applySidebarColor(state.settings.sidebarColor);
@@ -739,7 +910,7 @@ function buildNavHtml(){
 }
 function iconHome(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>`; }
 function iconHistory(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M12 8v4l3 3M21 12a9 9 0 11-9-9"/></svg>`; }
-function iconSettings(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.34 1.87M4.6 9a1.7 1.7 0 00-.34-1.87"/></svg>`; }
+function iconSettings(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.34 1.87l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.7 1.7 0 00-1.87-.34 1.7 1.7 0 00-1 1.55V21a2 2 0 01-4 0v-.09A1.7 1.7 0 009 19.4a1.7 1.7 0 00-1.87.34l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.7 1.7 0 004.6 15a1.7 1.7 0 00-1.55-1H3a2 2 0 010-4h.09A1.7 1.7 0 004.6 9a1.7 1.7 0 00-.34-1.87l-.06-.06a2 2 0 112.83-2.83l.06.06A1.7 1.7 0 009 4.6a1.7 1.7 0 001-1.55V3a2 2 0 014 0v.09a1.7 1.7 0 001 1.55 1.7 1.7 0 001.87-.34l.06-.06a2 2 0 112.83 2.83l-.06.06A1.7 1.7 0 0019.4 9a1.7 1.7 0 001.55 1H21a2 2 0 010 4h-.09a1.7 1.7 0 00-1.51 1z"/></svg>`; }
 function iconFolder(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M3 7a2 2 0 012-2h4l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>`; }
 function iconDot(){ return `<span class="w-1.5 h-1.5 rounded-full bg-[#d8d3c0] shrink-0"></span>`; }
 
@@ -1034,12 +1205,13 @@ function renderLocationView(){
 
     return `<div class="bg-white rounded-2xl border border-[#E7E2D3] overflow-hidden">
       <div class="flex gap-4 p-4">
+        ${state.selectMode ? `<label class="flex items-start pt-7 shrink-0"><input type="checkbox" data-select-group="${key}" ${state.selectedGroups.has(key)?'checked':''} class="w-4 h-4 rounded accent-current"/></label>` : ''}
         <div class="w-20 h-20 rounded-xl overflow-hidden bg-[#F1EEE3] shrink-0 flex items-center justify-center text-[#c9c3ac]">${img}</div>
         <div class="min-w-0 flex-1">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
               <p class="font-display font-semibold truncate">${escapeHtml(rep.name)}</p>
-              <p class="text-[11px] font-mono text-[#a89f85]">${key} · ${rep.category}</p>
+              <p class="text-[11px] font-mono text-[#a89f85]">${key} · ${rep.category}${rep.subCategory ? ' · '+escapeHtml(rep.subCategory) : ''}</p>
             </div>
             <div class="flex gap-2 shrink-0">
               <button data-batch="${key}" class="text-[11px] px-2.5 py-1 rounded-lg border border-[#E2DFD3] font-medium hover:bg-[#F1EEE3]">+ Batch</button>
@@ -1063,9 +1235,20 @@ function renderLocationView(){
         <h1 class="font-display text-2xl font-semibold">${escapeHtml(locName)}</h1>
         <p class="text-sm text-[#8a8471]">${groupKeys.length} asset group${groupKeys.length===1?'':'s'} · ${items.reduce((s,a)=>s+Number(a.qty||0),0)} total pieces</p>
       </div>
-      <button data-action="new-item-here" class="flex items-center gap-2 theme-bg text-white px-4 py-2.5 rounded-xl text-sm font-medium">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>New Item
-      </button>
+      <div class="flex items-center gap-2 flex-wrap">
+        ${state.selectMode ? `
+          <span class="text-xs font-mono text-[#8a8471]">${state.selectedGroups.size} selected</span>
+          <button data-bulk-move class="text-[11px] px-2.5 py-2 rounded-lg border border-[#E2DFD3] font-medium hover:bg-[#F1EEE3]">Move Location</button>
+          <button data-bulk-recat class="text-[11px] px-2.5 py-2 rounded-lg border border-[#E2DFD3] font-medium hover:bg-[#F1EEE3]">Change Category</button>
+          <button data-bulk-delete class="text-[11px] px-2.5 py-2 rounded-lg border border-red-200 text-red-600 font-medium hover:bg-red-50">Delete Selected</button>
+          <button data-select-cancel class="text-[11px] px-2.5 py-2 rounded-lg hover:bg-[#F1EEE3] font-medium">Cancel</button>
+        ` : `
+          <button data-select-start class="flex items-center gap-1.5 text-[12px] px-3 py-2.5 rounded-xl border border-[#E2DFD3] font-medium hover:bg-[#F1EEE3]">${iconCheckSquare()} Select Items</button>
+          <button data-action="new-item-here" class="flex items-center gap-2 theme-bg text-white px-4 py-2.5 rounded-xl text-sm font-medium">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>New Item
+          </button>
+        `}
+      </div>
     </div>
     ${groupKeys.length ? `<div class="grid md:grid-cols-2 gap-4">${cards}</div>` : emptyState('No assets yet', 'Add the first item for this location to start tracking inventory.')}
   </div>`;
@@ -1074,6 +1257,9 @@ function iconFallback(){ return `<svg width="24" height="24" viewBox="0 0 24 24"
 function iconEdit(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>`; }
 function iconDup(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`; }
 function iconTrash(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6"/></svg>`; }
+function iconCheckSquare(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>`; }
+function iconAlertTriangle(){ return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86l-8.18 14.18A2 2 0 003.82 21h16.36a2 2 0 001.71-2.96L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>`; }
+function iconLock(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>`; }
 function emptyState(title, body){
   return `<div class="bg-white rounded-2xl border border-dashed border-[#DCD7C6] p-12 text-center">
     <p class="font-display font-semibold text-lg">${title}</p>
@@ -1089,7 +1275,8 @@ function openEditor(entry, opts){
   state.editing = entry ? JSON.parse(JSON.stringify(entry)) : {
     id:null, assetNumber:null, name:'', category: CATEGORIES[0].name,
     location: state.activeLocation || LOCATIONS[0].name, qty:1, condition:'Usable',
-    purchasePrice:0, purchaseDate:new Date().toISOString().slice(0,10), vendor:'', notes:'', imageSrc:''
+    purchasePrice:0, purchaseDate:new Date().toISOString().slice(0,10), vendor:'', notes:'', imageSrc:'',
+    subCategory:'', remarks:''
   };
   state.splitMode = !!opts.split;
   state.editorBaseAssetNumber = opts.baseAssetNumber || (entry ? entry.assetNumber : null);
@@ -1159,9 +1346,18 @@ function renderStandardForm(e){
         <label class="lbl">Vendor Details</label>
         <input id="f-vendor" type="text" class="inp" value="${escapeHtml(e.vendor)}" placeholder="Vendor name / contact"/>
       </div>
+      <div>
+        <label class="lbl">Sub-category</label>
+        <input id="f-subcat" type="text" class="inp" list="subcat-datalist" value="${escapeHtml(e.subCategory||'')}" placeholder="e.g. Bed Linen, Cookware"/>
+        <datalist id="subcat-datalist">${[...new Set(state.assets.map(a=>a.subCategory).filter(Boolean))].sort().map(s=>`<option value="${escapeHtml(s)}"></option>`).join('')}</datalist>
+      </div>
       <div class="sm:col-span-2">
         <label class="lbl">Notes</label>
         <textarea id="f-notes" rows="2" class="inp">${escapeHtml(e.notes)}</textarea>
+      </div>
+      <div class="sm:col-span-2">
+        <label class="lbl">Remarks</label>
+        <textarea id="f-remarks" rows="2" class="inp">${escapeHtml(e.remarks||'')}</textarea>
       </div>
     </div>
 
@@ -1257,7 +1453,7 @@ function a4TemplateHtml(e, forPrint){
     <div class="col-span-2 space-y-2">
       <p class="font-display font-semibold text-xl">${escapeHtml(e.name)||'Untitled Asset'}</p>
       <div class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] mt-2">
-        <p><span class="text-[#8a8471]">Category:</span> ${escapeHtml(e.category)}</p>
+        <p><span class="text-[#8a8471]">Category:</span> ${escapeHtml(e.category)}${e.subCategory ? ' / '+escapeHtml(e.subCategory) : ''}</p>
         <p><span class="text-[#8a8471]">Location:</span> ${escapeHtml(e.location)}</p>
         <p><span class="text-[#8a8471]">Quantity:</span> ${e.qty}</p>
         <p><span class="text-[#8a8471]">Condition:</span> <span class="px-2 py-0.5 rounded-full ${c.cls}">${e.condition}</span></p>
@@ -1270,6 +1466,7 @@ function a4TemplateHtml(e, forPrint){
         <p class="text-[#8a8471] text-[11px]">Notes:</p>
         <p class="text-[11px]">${escapeHtml(e.notes)||'—'}</p>
       </div>
+      ${e.remarks ? `<div class="mt-2"><p class="text-[#8a8471] text-[11px]">Remarks:</p><p class="text-[11px]">${escapeHtml(e.remarks)}</p></div>` : ''}
     </div>
   </div>
   ${a4FooterHtml(1,1)}
@@ -1311,6 +1508,10 @@ function readFormIntoEditing(){
   e.purchaseDate = document.getElementById('f-pdate').value;
   e.vendor = document.getElementById('f-vendor').value.trim();
   e.notes = document.getElementById('f-notes').value.trim();
+  const subcatEl = document.getElementById('f-subcat');
+  if(subcatEl) e.subCategory = subcatEl.value.trim();
+  const remarksEl = document.getElementById('f-remarks');
+  if(remarksEl) e.remarks = remarksEl.value.trim();
   const urlVal = document.getElementById('f-image-url').value.trim();
   if(urlVal) e.imageSrc = convertImageUrl(urlVal);
 }
@@ -1480,6 +1681,23 @@ function bindViewEvents(){
     const batchEntry = Object.assign({}, rep, { id:null, qty:1, condition:'Usable', purchaseDate:new Date().toISOString().slice(0,10), createdAt:null, lastUpdated:null });
     openEditor(batchEntry, { batch:true, baseAssetNumber: base });
   }));
+
+  // bulk select / move / recategorize / delete
+  const selStartBtn = document.querySelector('[data-select-start]');
+  if(selStartBtn) selStartBtn.addEventListener('click', ()=>{ state.selectMode=true; state.selectedGroups=new Set(); render(); });
+  const selCancelBtn = document.querySelector('[data-select-cancel]');
+  if(selCancelBtn) selCancelBtn.addEventListener('click', ()=>{ state.selectMode=false; state.selectedGroups=new Set(); render(); });
+  document.querySelectorAll('[data-select-group]').forEach(cb=>cb.addEventListener('change', ()=>{
+    const key = cb.getAttribute('data-select-group');
+    if(cb.checked) state.selectedGroups.add(key); else state.selectedGroups.delete(key);
+    render();
+  }));
+  const bulkMoveBtn = document.querySelector('[data-bulk-move]');
+  if(bulkMoveBtn) bulkMoveBtn.addEventListener('click', ()=>openBulkPicker('location'));
+  const bulkRecatBtn = document.querySelector('[data-bulk-recat]');
+  if(bulkRecatBtn) bulkRecatBtn.addEventListener('click', ()=>openBulkPicker('category'));
+  const bulkDelBtn = document.querySelector('[data-bulk-delete]');
+  if(bulkDelBtn) bulkDelBtn.addEventListener('click', bulkDeleteSelected);
 
   // editor actions
   document.querySelectorAll('[data-action="back"]').forEach(backBtn=>{
@@ -1680,8 +1898,22 @@ function bindHistoryRowActions(){
 /* ---------------------------------------------------------------------------
    17. SETTINGS VIEW
 --------------------------------------------------------------------------- */
+function adminLockNotice(title){
+  return `
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5">
+      <div class="flex items-start gap-3">
+        <span class="p-2 rounded-lg bg-[#F1EEE3] text-[#8a8471] shrink-0">${iconLock()}</span>
+        <div>
+          <p class="font-display font-semibold text-[#4b4736]">${escapeHtml(title)}</p>
+          <p class="text-xs text-[#8a8471] mt-1">Standard Manager Account: Core system configurations are locked by the Administrator.</p>
+        </div>
+      </div>
+    </section>`;
+}
+
 function renderSettingsView(){
   const s = state.settings;
+  const admin = isAdminSession();
   const changelogHtml = state.meta.changelog.map(c=>`
     <div class="border-b border-[#F1EEE3] last:border-0 py-3">
       <div class="flex items-center gap-2">
@@ -1696,6 +1928,7 @@ function renderSettingsView(){
   <div class="space-y-6 max-w-3xl">
     <h1 class="font-display text-2xl font-semibold">Settings</h1>
 
+    ${admin ? `
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
       <p class="font-display font-semibold">Company Metadata</p>
       <div class="grid sm:grid-cols-2 gap-4">
@@ -1705,13 +1938,17 @@ function renderSettingsView(){
         <div><label class="lbl">Email</label><input id="s-email" class="inp" value="${escapeHtml(s.email)}"/></div>
         <div><label class="lbl">Website</label><input id="s-website" class="inp" value="${escapeHtml(s.website)}"/></div>
       </div>
-    </section>
+    </section>` : adminLockNotice('Company Metadata')}
 
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
       <p class="font-display font-semibold">Asset Categories</p>
-      <p class="text-xs text-[#8a8471]">New categories appear instantly in the New Item form's Category dropdown. Asset codes are auto-derived from the first three letters of the category name (e.g. Glassware → GLA, producing codes like LBY-GLA-001).</p>
+      <p class="text-xs text-[#8a8471]">New categories appear instantly in the New Item form's Category dropdown. Asset codes are auto-derived from the first three letters of the category name (e.g. Glassware → GLA, producing codes like LBY-GLA-001). Renaming regenerates Item Numbers for records using it (old numbers stay in History for audit); a category can only be deleted once no current records use it.</p>
       <div class="flex flex-wrap gap-2">
-        ${CATEGORIES.map(c=>`<span class="text-xs font-mono px-2.5 py-1 rounded-full theme-tint theme-text font-semibold">${escapeHtml(c.name)} · ${c.code}</span>`).join('')}
+        ${CATEGORIES.map(c=>`<span class="inline-flex items-center gap-1 text-xs font-mono pl-2.5 pr-1.5 py-1 rounded-full theme-tint theme-text font-semibold">
+          ${escapeHtml(c.name)} · ${c.code}
+          <button data-cat-rename="${escapeHtml(c.name)}" class="p-1 rounded hover:bg-white/50" title="Rename">${iconEdit()}</button>
+          <button data-cat-delete="${escapeHtml(c.name)}" class="p-1 rounded hover:bg-white/50" title="Delete">${iconTrash()}</button>
+        </span>`).join('')}
       </div>
       <div class="flex flex-wrap gap-2 items-end">
         <div class="flex-1 min-w-[160px]">
@@ -1727,6 +1964,37 @@ function renderSettingsView(){
     </section>
 
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
+      <p class="font-display font-semibold">Storage Locations</p>
+      <p class="text-xs text-[#8a8471]">Rename a location when the physical space is renamed (e.g. Store Room 1 → Chemical Store) — every current record instantly gets a new Item Number reflecting the change, while the OLD number stays in History for audit and quantities are untouched. A location can only be deleted once no current records use it.</p>
+      <div class="flex flex-wrap gap-2">
+        ${LOCATIONS.map(l=>`<span class="inline-flex items-center gap-1 text-xs font-mono pl-2.5 pr-1.5 py-1 rounded-full theme-tint theme-text font-semibold">
+          ${escapeHtml(l.name)} · ${l.code}
+          <button data-loc-rename="${escapeHtml(l.name)}" class="p-1 rounded hover:bg-white/50" title="Rename">${iconEdit()}</button>
+          <button data-loc-delete="${escapeHtml(l.name)}" class="p-1 rounded hover:bg-white/50" title="Delete">${iconTrash()}</button>
+        </span>`).join('')}
+      </div>
+      <div class="flex flex-wrap gap-2 items-end">
+        <div class="flex-1 min-w-[160px]">
+          <label class="lbl">New Location Name</label>
+          <input id="s-loc-name" type="text" class="inp" placeholder="e.g. Upstairs Lounge"/>
+        </div>
+        <div class="w-40">
+          <label class="lbl">Zone</label>
+          <select id="s-loc-zone" class="inp">${ZONES.map(z=>`<option value="${escapeHtml(z)}">${escapeHtml(z)}</option>`).join('')}</select>
+        </div>
+        <div class="w-24">
+          <label class="lbl">Code</label>
+          <input id="s-loc-code-preview" type="text" class="inp font-mono bg-[#F7F5EF] text-[#8a8471]" readonly value=""/>
+        </div>
+        <button id="s-loc-add" class="px-4 py-2.5 rounded-xl theme-bg text-white text-sm font-medium">Add Location</button>
+      </div>
+      ${lastBulkUndo ? `<div class="flex items-center justify-between gap-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-xl px-3 py-2.5">
+        <p class="text-xs text-[#7c5e10]">Last change: ${escapeHtml(lastBulkUndo.label)}</p>
+        <button id="s-undo-last" class="text-xs px-3 py-1.5 rounded-lg border border-[#FDE68A] font-medium hover:bg-white shrink-0">Undo</button>
+      </div>` : ''}
+    </section>
+
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
       <p class="font-display font-semibold">Currency</p>
       <div class="flex gap-2">
         <button data-currency="USD" class="curr-btn px-4 py-2 rounded-xl text-sm font-medium border ${s.currency==='USD'?'theme-bg text-white border-transparent':'border-[#E2DFD3]'}">USD ($)</button>
@@ -1734,6 +2002,7 @@ function renderSettingsView(){
       </div>
     </section>
 
+    ${admin ? `
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
       <p class="font-display font-semibold">Branding Logo</p>
       <div class="flex items-center gap-4">
@@ -1741,7 +2010,7 @@ function renderSettingsView(){
         <input id="s-logo-file" type="file" accept="image/*" class="text-xs"/>
         <button id="s-logo-remove" class="text-xs px-3 py-1.5 rounded-lg border border-[#E2DFD3] hover:bg-[#F1EEE3]">Remove Logo</button>
       </div>
-    </section>
+    </section>` : ''}
 
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
       <p class="font-display font-semibold uppercase tracking-wide text-sm">Primary Theme Color</p>
@@ -1773,6 +2042,7 @@ function renderSettingsView(){
       </div>
     </section>
 
+    ${admin ? `
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
       <div class="flex items-center justify-between flex-wrap gap-2">
         <p class="font-display font-semibold">Cloud Connection Workspace — Google Drive Live-Sync</p>
@@ -1793,8 +2063,9 @@ function renderSettingsView(){
         ${state.cloud.userEmail ? `<span class="text-xs text-[#8a8471]">Signed in as ${escapeHtml(state.cloud.userEmail)}</span>` : ''}
       </div>
       <p class="text-[11px] text-[#a89f85]">${state.cloud.lastSync ? 'Last synced ' + fmtDateTime(new Date(state.cloud.lastSync)) : 'Not yet synced with the shared folder.'}</p>
-    </section>
+    </section>` : adminLockNotice('Cloud Connection Workspace')}
 
+    ${admin ? `
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
       <p class="font-display font-semibold">Data Portability</p>
       <div class="flex flex-wrap gap-3">
@@ -1803,6 +2074,32 @@ function renderSettingsView(){
           Import Data (.json)<input id="s-import" type="file" accept="application/json" class="hidden"/>
         </label>
       </div>
+    </section>
+
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-3">
+      <p class="font-display font-semibold">Bulk Import &amp; Export — Spreadsheet</p>
+      <p class="text-xs text-[#8a8471]">Load assets from an existing Excel/CSV sheet, or export your current inventory to Excel/CSV to share with anyone offline. Column names don't need to match exactly — common variants (e.g. "Item Name", "Asset Image", "Sub-category") are recognized automatically on import. Rows are <span class="font-medium">added</span> to your existing inventory, never replaced, and every item gets a fresh Auto Item Number based on its location and category — any Asset Number already in the sheet is ignored. New categories or locations found in the sheet are created automatically; you'll see a summary to confirm before anything is written.</p>
+      <div class="flex flex-wrap gap-3">
+        <label class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] cursor-pointer w-fit">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+          Choose Excel / CSV File<input id="s-excel-import" type="file" accept=".xlsx,.xls,.csv" class="hidden"/>
+        </label>
+        <button id="s-excel-export" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] w-fit">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          Export as Excel (.xlsx)
+        </button>
+        <button id="s-csv-export" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] w-fit">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          Export as CSV (.csv)
+        </button>
+      </div>
+      <p id="excel-import-filename" class="text-xs text-[#a89f85]"></p>
+    </section>` : adminLockNotice('Bulk Import & Export — Data Tools')}
+
+    <section class="bg-white rounded-2xl border border-red-200 p-5 space-y-3">
+      <p class="font-display font-semibold text-red-600 flex items-center gap-2">${iconAlertTriangle()} Danger Zone</p>
+      <p class="text-xs text-[#8a8471]">Useful right before a fresh bulk import. This clears all current inventory records — History is kept for audit and is not affected.</p>
+      <button id="s-delete-all" class="px-4 py-2.5 rounded-xl border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50">Delete All Records</button>
     </section>
 
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-3">
@@ -1908,6 +2205,33 @@ function bindSettingsEvents(){
     showToast(`Category "${name}" added (${code}).`);
     render();
   });
+  document.querySelectorAll('[data-cat-rename]').forEach(b=>b.addEventListener('click', ()=>renameCategoryPrompt(b.getAttribute('data-cat-rename'))));
+  document.querySelectorAll('[data-cat-delete]').forEach(b=>b.addEventListener('click', ()=>deleteCategoryPrompt(b.getAttribute('data-cat-delete'))));
+
+  const locNameInput = document.getElementById('s-loc-name');
+  const locCodePreview = document.getElementById('s-loc-code-preview');
+  if(locNameInput){
+    locNameInput.addEventListener('input', ()=>{
+      locCodePreview.value = locNameInput.value.trim() ? deriveLocationCode(locNameInput.value) : '';
+    });
+    locNameInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); document.getElementById('s-loc-add').click(); } });
+  }
+  bind('s-loc-add','click', async ()=>{
+    const name = (locNameInput.value||'').trim();
+    if(!name){ showToast('Enter a location name.','error'); return; }
+    if(LOCATIONS.some(l=>l.name.toLowerCase()===name.toLowerCase())){
+      showToast('That location already exists.','error'); return;
+    }
+    const zone = document.getElementById('s-loc-zone').value;
+    const code = deriveLocationCode(name);
+    LOCATIONS.push({ code, name, zone });
+    await saveLocations();
+    showToast(`Location "${name}" added (${code}).`);
+    render();
+  });
+  document.querySelectorAll('[data-loc-rename]').forEach(b=>b.addEventListener('click', ()=>renameLocationPrompt(b.getAttribute('data-loc-rename'))));
+  document.querySelectorAll('[data-loc-delete]').forEach(b=>b.addEventListener('click', ()=>deleteLocationPrompt(b.getAttribute('data-loc-delete'))));
+  bind('s-undo-last','click', undoLastBulkChange);
 
   document.querySelectorAll('.curr-btn').forEach(b=>b.addEventListener('click', async ()=>{
     state.settings.currency = b.getAttribute('data-currency');
@@ -1966,6 +2290,10 @@ function bindSettingsEvents(){
   bind('s-export','click', exportAllData);
   bind('s-import','change', importAllData);
   bind('s-whatsnew','click', downloadWhatsNew);
+  bind('s-excel-import','change', handleExcelFileSelect);
+  bind('s-excel-export','click', exportAssetsToExcel);
+  bind('s-csv-export','click', exportAssetsToCsv);
+  bind('s-delete-all','click', deleteAllRecords);
 
   bind('s-cloud-save','click', async ()=>{
     state.cloud.clientId = (document.getElementById('s-cloud-client-id').value||'').trim();
@@ -1998,6 +2326,7 @@ async function exportAllData(){
     history: state.history,
     settings: state.settings,
     categories: CATEGORIES,
+    locations: LOCATIONS,
     meta: { version: state.meta.version, changelog: state.meta.changelog }
   };
   const blob = new Blob([JSON.stringify(payload,null,2)], { type:'application/json' });
@@ -2026,6 +2355,9 @@ async function importAllData(e){
     const importedCategories = Array.isArray(data.categories) && data.categories.length ? data.categories : DEFAULT_CATEGORIES.map(c=>Object.assign({},c));
     await idbPut('meta', { key:'categories', list: importedCategories });
     CATEGORIES = importedCategories;
+    const importedLocations = Array.isArray(data.locations) && data.locations.length ? data.locations : DEFAULT_LOCATIONS.map(l=>Object.assign({},l));
+    await idbPut('meta', { key:'locations', list: importedLocations });
+    LOCATIONS = importedLocations;
     const metaVersion = data.meta && data.meta.version ? data.meta.version : '1.1';
     const metaChangelog = data.meta && data.meta.changelog ? data.meta.changelog : DEFAULT_CHANGELOG;
     await idbPut('meta', { key:'version', version: metaVersion, changelog: metaChangelog });
@@ -2051,7 +2383,401 @@ async function importAllData(e){
 }
 
 /* ---------------------------------------------------------------------------
-   18b. CLOUD SYNC — GOOGLE DRIVE LIVE-SYNC (Strategy 2)
+   18b. BULK IMPORT FROM SPREADSHEET (Excel / CSV)
+   Parses a .xlsx/.xls/.csv file entirely in the browser (SheetJS), maps
+   flexible/renamed column headers onto the asset schema, auto-creates any
+   category or location it hasn't seen before, and generates a fresh Auto
+   Item Number for every row via the existing nextAssetNumber() logic.
+   Rows are ADDED to the existing inventory — nothing is overwritten.
+--------------------------------------------------------------------------- */
+let pendingExcelImport = null;
+
+const EXCEL_HEADER_MAP = {
+  assetnumber: 'skip', assetno: 'skip', itemnumber: 'skip', itemno: 'skip',
+  itemname: 'name', name: 'name', item: 'name', assetname: 'name',
+  category: 'category',
+  subcategory: 'subCategory', subcat: 'subCategory',
+  location: 'location', assignedlocation: 'location', room: 'location',
+  quantity: 'qty', qty: 'qty',
+  condition: 'condition', status: 'condition',
+  purchaseprice: 'purchasePrice', purchasepriceperunit: 'purchasePrice', price: 'purchasePrice', unitprice: 'purchasePrice', cost: 'purchasePrice',
+  purchasedate: 'purchaseDate', date: 'purchaseDate', dateofpurchase: 'purchaseDate',
+  vendor: 'vendor', vendordetails: 'vendor', supplier: 'vendor',
+  notes: 'notes', note: 'notes',
+  assetimage: 'imageSrc', image: 'imageSrc', photo: 'imageSrc', picture: 'imageSrc',
+  remarks: 'remarks', remark: 'remarks', comment: 'remarks', comments: 'remarks',
+};
+function normalizeHeader(h){ return String(h||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+
+function parseDateCell(val){
+  if(val === null || val === undefined || val === '') return '';
+  if(val instanceof Date && !isNaN(val)) return val.toISOString().slice(0,10);
+  if(typeof val === 'number'){
+    const d = new Date(Math.round((val - 25569) * 86400 * 1000));
+    if(!isNaN(d)) return d.toISOString().slice(0,10);
+  }
+  const s = String(val).trim();
+  if(!s) return '';
+  const d = new Date(s);
+  return isNaN(d) ? '' : d.toISOString().slice(0,10);
+}
+function normalizeConditionCell(val){
+  const v = String(val||'').trim().toLowerCase();
+  if(!v) return 'Usable';
+  const found = CONDITIONS.find(c=>{
+    const k = c.key.toLowerCase();
+    return k===v || k.replace(/\s+/g,'')===v.replace(/\s+/g,'');
+  });
+  return found ? found.key : 'Usable';
+}
+
+async function handleExcelFileSelect(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const nameLabel = document.getElementById('excel-import-filename');
+  if(nameLabel) nameLabel.textContent = `Selected: ${file.name}`;
+  try{
+    if(typeof XLSX === 'undefined'){
+      showToast('The spreadsheet library is still loading — please try again in a moment.','error');
+      e.target.value = ''; return;
+    }
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type:'array', cellDates:true });
+    const sheetName = wb.SheetNames[0];
+    const ws = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval:'' });
+    if(!rows.length){
+      showToast('That sheet has no data rows.','error'); e.target.value=''; return;
+    }
+    processExcelRows(rows, file.name);
+  }catch(err){
+    showToast('Could not read that file: '+err.message,'error');
+  }
+  e.target.value = '';
+}
+
+function processExcelRows(rows, fileName){
+  const mapped = [];
+  const skipped = [];
+  const extraHeadersSeen = new Set();
+  const newCategoryNames = new Set();
+  const newLocationNames = new Set();
+
+  rows.forEach((raw, idx)=>{
+    const out = { name:'', category:'', subCategory:'', location:'', qty:1, condition:'Usable',
+      purchasePrice:0, purchaseDate:'', vendor:'', notes:'', imageSrc:'', remarks:'' };
+    const extras = [];
+    Object.keys(raw).forEach(key=>{
+      const norm = normalizeHeader(key);
+      const field = EXCEL_HEADER_MAP[norm];
+      const val = raw[key];
+      const valStr = (val===null||val===undefined) ? '' : String(val).trim();
+      if(field === 'skip') return;
+      if(field === undefined){
+        if(valStr !== ''){ extras.push(`${String(key).trim()}: ${valStr}`); extraHeadersSeen.add(String(key).trim()); }
+        return;
+      }
+      if(field === 'qty'){
+        const n = parseInt(val,10);
+        out.qty = (Number.isFinite(n) && n>0) ? n : out.qty;
+      } else if(field === 'purchasePrice'){
+        const n = parseFloat(val);
+        out.purchasePrice = Number.isFinite(n) ? n : 0;
+      } else if(field === 'purchaseDate'){
+        out.purchaseDate = parseDateCell(val);
+      } else if(field === 'condition'){
+        out.condition = normalizeConditionCell(val);
+      } else {
+        out[field] = valStr;
+      }
+    });
+    out.name = out.name.trim();
+    if(!out.name){ skipped.push({ row: idx+2, reason:'missing item name' }); return; }
+    if(!out.category) out.category = 'Uncategorized';
+    if(!out.location) out.location = 'Unassigned';
+    if(extras.length) out.remarks = [out.remarks, ...extras].filter(Boolean).join('; ');
+    mapped.push(out);
+    if(!catByName(out.category)) newCategoryNames.add(out.category);
+    if(!locByName(out.location)) newLocationNames.add(out.location);
+  });
+
+  if(!mapped.length){
+    showToast('No usable rows found — every row was missing an item name.','error');
+    return;
+  }
+
+  pendingExcelImport = {
+    rows: mapped, skipped, fileName,
+    newCategoryNames: [...newCategoryNames], newLocationNames: [...newLocationNames],
+    extraHeadersSeen: [...extraHeadersSeen],
+  };
+  openExcelImportPreview();
+}
+
+function openExcelImportPreview(){
+  const p = pendingExcelImport;
+  const block = (title, items, extraClass)=> items.length ? `<div><p class="font-medium mb-1 ${extraClass||''}">${title} (${items.length})</p><p class="text-xs text-[#8a8471]">${items.map(escapeHtml).join(', ')}</p></div>` : '';
+  const skippedHtml = p.skipped.length ? `<div><p class="font-medium mb-1 text-red-600">${p.skipped.length} row(s) skipped — no item name</p><p class="text-xs text-[#8a8471]">Sheet row${p.skipped.length===1?'':'s'}: ${p.skipped.map(s=>s.row).join(', ')}</p></div>` : '';
+  document.getElementById('excel-import-summary').innerHTML = `
+    <div><p class="font-medium">${escapeHtml(p.fileName)}</p><p class="text-xs text-[#8a8471] mt-0.5">${p.rows.length} item${p.rows.length===1?'':'s'} will be added as new inventory entries, each with a freshly auto-generated Asset Number based on its location and category.</p></div>
+    ${block('New categories to create', p.newCategoryNames)}
+    ${block('New locations to create', p.newLocationNames)}
+    ${block('Unrecognized columns (kept in Remarks)', p.extraHeadersSeen)}
+    ${skippedHtml}
+  `;
+  const dlg = document.getElementById('excel-import-dialog');
+  dlg.classList.remove('hidden'); dlg.classList.add('flex');
+}
+
+async function commitExcelImport(){
+  const p = pendingExcelImport;
+  if(!p) return;
+  showToast(`Importing ${p.rows.length} items — this may take a moment…`,'info');
+  let created = 0;
+  for(const row of p.rows){
+    const cat = await ensureCategory(row.category);
+    const loc = await ensureLocation(row.location);
+    if(!cat || !loc) continue;
+    const assetNumber = await nextAssetNumber(loc.name, cat.name);
+    const nowIso = nowISO();
+    let imageSrc = '', remarks = row.remarks;
+    if(row.imageSrc){
+      if(/^https?:\/\//i.test(row.imageSrc)) imageSrc = convertImageUrl(row.imageSrc);
+      else remarks = [remarks, `Image ref: ${row.imageSrc}`].filter(Boolean).join('; ');
+    }
+    const asset = {
+      id: uuid(), assetNumber, name: row.name, category: cat.name, subCategory: row.subCategory||'',
+      location: loc.name, qty: row.qty, condition: row.condition,
+      purchasePrice: row.purchasePrice, purchaseDate: row.purchaseDate, vendor: row.vendor,
+      notes: row.notes, imageSrc, remarks,
+      createdAt: nowIso, lastUpdated: nowIso
+    };
+    await idbPut('assets', asset);
+    state.assets.push(asset);
+    await logHistory('created', asset);
+    created++;
+  }
+  pendingExcelImport = null;
+  render();
+  navigateTo('dashboard');
+  showToast(`Imported ${created} item${created===1?'':'s'} from ${p.fileName}.`);
+}
+
+/* ---------------------------------------------------------------------------
+   18b2. LOCATION / CATEGORY LIFECYCLE — rename (cascading renumber + audit),
+   delete-if-unused, bulk move/recategorize, delete-all/selected, and a
+   single-slot Undo for the last such change.
+--------------------------------------------------------------------------- */
+async function renameLocationPrompt(oldName){
+  const loc = locByName(oldName);
+  if(!loc) return;
+  const input = (prompt(`Rename location "${oldName}" to:`, oldName)||'').trim();
+  if(!input || input===oldName) return;
+  if(LOCATIONS.some(l=>l.name.toLowerCase()===input.toLowerCase())){
+    showToast('That location name is already in use.','error'); return;
+  }
+  const affected = state.assets.filter(a=>a.location===oldName);
+  const msg = affected.length
+    ? `${affected.length} record(s) currently use this location. Their Item Numbers will be regenerated to reflect the new name — the OLD Item Number stays in History for audit, and quantities are unaffected.`
+    : `No current records use this location — the rename applies immediately.`;
+  const ok = await askConfirm(`Rename "${oldName}" to "${input}"?`, msg);
+  if(!ok) return;
+
+  const oldCode = loc.code;
+  const ops = affected.map(a=>({ id:a.id, assetNumber:a.assetNumber, location:a.location, category:a.category }));
+  loc.name = input; loc.code = deriveLocationCode(input);
+  await saveLocations();
+
+  for(const row of affected){
+    const oldNum = row.assetNumber;
+    const newNum = await nextAssetNumber(input, row.category);
+    row.location = input;
+    row.assetNumber = newNum || oldNum;
+    row.lastUpdated = nowISO();
+    await idbPut('assets', row);
+    await logHistory('renumbered', Object.assign({}, row, { assetNumber: oldNum, notes: (row.notes?row.notes+' — ':'')+`Renumbered from ${oldNum} (location renamed "${oldName}" \u2192 "${input}")` }));
+  }
+  lastBulkUndo = { label:`Rename location "${oldName}" \u2192 "${input}"`, ops, renameRevert:{ type:'location', oldName, newName:input, oldCode, newCode:loc.code } };
+  showToast(`Renamed to "${input}". ${affected.length} item number(s) regenerated.`, 'info');
+  render();
+}
+async function deleteLocationPrompt(name){
+  const inUse = state.assets.some(a=>a.location===name);
+  if(inUse){ showToast(`Can't delete "${name}" — it still has current records. Move or delete those items first.`,'error'); return; }
+  const ok = await askConfirm(`Delete location "${name}"?`, `This removes it from the location list. Past History entries referencing "${name}" are kept for audit.`);
+  if(!ok) return;
+  LOCATIONS = LOCATIONS.filter(l=>l.name!==name);
+  await saveLocations();
+  showToast(`Location "${name}" deleted.`,'info');
+  render();
+}
+async function renameCategoryPrompt(oldName){
+  const cat = catByName(oldName);
+  if(!cat) return;
+  const input = (prompt(`Rename category "${oldName}" to:`, oldName)||'').trim();
+  if(!input || input===oldName) return;
+  if(CATEGORIES.some(c=>c.name.toLowerCase()===input.toLowerCase())){
+    showToast('That category name is already in use.','error'); return;
+  }
+  const affected = state.assets.filter(a=>a.category===oldName);
+  const msg = affected.length
+    ? `${affected.length} record(s) currently use this category. Their Item Numbers will be regenerated to reflect the new name — the OLD Item Number stays in History for audit, and quantities are unaffected.`
+    : `No current records use this category — the rename applies immediately.`;
+  const ok = await askConfirm(`Rename "${oldName}" to "${input}"?`, msg);
+  if(!ok) return;
+
+  const oldCode = cat.code;
+  const ops = affected.map(a=>({ id:a.id, assetNumber:a.assetNumber, location:a.location, category:a.category }));
+  cat.name = input; cat.code = deriveCategoryCode(input);
+  await saveCategories();
+
+  for(const row of affected){
+    const oldNum = row.assetNumber;
+    const newNum = await nextAssetNumber(row.location, input);
+    row.category = input;
+    row.assetNumber = newNum || oldNum;
+    row.lastUpdated = nowISO();
+    await idbPut('assets', row);
+    await logHistory('renumbered', Object.assign({}, row, { assetNumber: oldNum, notes: (row.notes?row.notes+' — ':'')+`Renumbered from ${oldNum} (category renamed "${oldName}" \u2192 "${input}")` }));
+  }
+  lastBulkUndo = { label:`Rename category "${oldName}" \u2192 "${input}"`, ops, renameRevert:{ type:'category', oldName, newName:input, oldCode, newCode:cat.code } };
+  showToast(`Renamed to "${input}". ${affected.length} item number(s) regenerated.`, 'info');
+  render();
+}
+async function deleteCategoryPrompt(name){
+  const inUse = state.assets.some(a=>a.category===name);
+  if(inUse){ showToast(`Can't delete "${name}" — it still has current records. Recategorize or delete those items first.`,'error'); return; }
+  const ok = await askConfirm(`Delete category "${name}"?`, `This removes it from the category list. Past History entries referencing "${name}" are kept for audit.`);
+  if(!ok) return;
+  CATEGORIES = CATEGORIES.filter(c=>c.name!==name);
+  await saveCategories();
+  showToast(`Category "${name}" deleted.`,'info');
+  render();
+}
+async function undoLastBulkChange(){
+  const u = lastBulkUndo;
+  if(!u) return;
+  if(u.renameRevert){
+    const rr = u.renameRevert;
+    const arr = rr.type==='location' ? LOCATIONS : CATEGORIES;
+    const entry = arr.find(x=>x.name===rr.newName);
+    if(entry){ entry.name = rr.oldName; entry.code = rr.oldCode; }
+    if(rr.type==='location') await saveLocations(); else await saveCategories();
+  }
+  for(const op of u.ops){
+    const row = state.assets.find(a=>a.id===op.id);
+    if(!row) continue;
+    row.assetNumber = op.assetNumber; row.location = op.location; row.category = op.category;
+    row.lastUpdated = nowISO();
+    await idbPut('assets', row);
+  }
+  lastBulkUndo = null;
+  showToast('Last change undone.','info');
+  render();
+}
+
+/* ---- Bulk select: move to location / change category / delete ---- */
+function openBulkPicker(kind){
+  if(state.selectedGroups.size===0){ showToast('Select at least one item first.','error'); return; }
+  bulkPickerContext = { kind };
+  const options = (kind==='location'?LOCATIONS:CATEGORIES).map(x=>`<option value="${escapeHtml(x.name)}">${escapeHtml(x.name)}</option>`).join('');
+  document.getElementById('bulk-picker-title').textContent = kind==='location' ? 'Move Selected Items to Location' : 'Change Category for Selected Items';
+  document.getElementById('bulk-picker-select').innerHTML = options;
+  const dlg = document.getElementById('bulk-picker-dialog');
+  dlg.classList.remove('hidden'); dlg.classList.add('flex');
+}
+async function commitBulkPicker(){
+  const dlg = document.getElementById('bulk-picker-dialog');
+  dlg.classList.add('hidden'); dlg.classList.remove('flex');
+  if(!bulkPickerContext) return;
+  const newVal = document.getElementById('bulk-picker-select').value;
+  const kind = bulkPickerContext.kind;
+  const groupKeys = [...state.selectedGroups];
+  const ops = [];
+  let touchedRows = 0;
+  for(const key of groupKeys){
+    const rows = state.assets.filter(a=>a.assetNumber===key);
+    if(!rows.length) continue;
+    const rep = rows[0];
+    if(kind==='location' && newVal===rep.location) continue;
+    if(kind==='category' && newVal===rep.category) continue;
+    const newLocation = kind==='location' ? newVal : rep.location;
+    const newCategory = kind==='category' ? newVal : rep.category;
+    const newNumber = await nextAssetNumber(newLocation, newCategory);
+    for(const row of rows){
+      const oldNumber = row.assetNumber, oldLoc = row.location, oldCat = row.category;
+      row.assetNumber = newNumber || oldNumber;
+      row.location = newLocation; row.category = newCategory;
+      row.lastUpdated = nowISO();
+      await idbPut('assets', row);
+      await logHistory(kind==='location'?'moved':'recategorized', Object.assign({}, row, { assetNumber: oldNumber }));
+      ops.push({ id: row.id, assetNumber: oldNumber, location: oldLoc, category: oldCat });
+      touchedRows++;
+    }
+  }
+  lastBulkUndo = ops.length ? { label: (kind==='location'?'Bulk move to "':'Bulk change to "')+newVal+'"', ops } : null;
+  bulkPickerContext = null;
+  state.selectMode = false; state.selectedGroups = new Set();
+  render();
+  showToast(`Updated ${touchedRows} record(s) across ${groupKeys.length} item group(s).`);
+}
+async function bulkDeleteSelected(){
+  if(state.selectedGroups.size===0){ showToast('Select at least one item first.','error'); return; }
+  const groupKeys = [...state.selectedGroups];
+  const rows = state.assets.filter(a=>groupKeys.includes(a.assetNumber));
+  const totalQty = rows.reduce((s,a)=>s+Number(a.qty||0),0);
+  const ok = await askConfirm(`Delete ${groupKeys.length} selected item group(s)?`, `This removes ${rows.length} record(s) totalling ${totalQty} pcs. History keeps a record for audit, but this can't be undone from here — export a backup first if unsure.`);
+  if(!ok) return;
+  for(const row of rows){
+    await idbDelete('assets', row.id);
+    await logHistory('deleted', row);
+  }
+  state.assets = state.assets.filter(a=>!groupKeys.includes(a.assetNumber));
+  state.selectMode = false; state.selectedGroups = new Set();
+  render();
+  showToast(`Deleted ${rows.length} record(s).`,'info');
+}
+async function deleteAllRecords(){
+  if(!state.assets.length){ showToast('There are no records to delete.','info'); return; }
+  const typed = prompt(`This permanently deletes all ${state.assets.length} current inventory record(s). History is kept for audit and is not affected.\n\nType DELETE to confirm:`);
+  if(typed !== 'DELETE'){ showToast('Delete All cancelled.','info'); return; }
+  for(const a of state.assets){ await idbDelete('assets', a.id); await logHistory('deleted', a); }
+  state.assets = [];
+  showToast('All records deleted.','info');
+  navigateTo('dashboard');
+}
+function assetExportRows(){
+  return state.assets.map(a=>({
+    'Asset Number': a.assetNumber, 'Item Name': a.name, 'Category': a.category, 'Sub-category': a.subCategory||'',
+    'Location': a.location, 'Quantity': a.qty, 'Condition': a.condition,
+    'Purchase Price': a.purchasePrice, 'Purchase Date': a.purchaseDate, 'Vendor': a.vendor,
+    'Notes': a.notes, 'Asset Image': a.imageSrc||'', 'Remarks': a.remarks||''
+  }));
+}
+function exportAssetsToExcel(){
+  if(typeof XLSX === 'undefined'){ showToast('The spreadsheet library is still loading — please try again shortly.','error'); return; }
+  if(!state.assets.length){ showToast('There are no records to export.','error'); return; }
+  const ws = XLSX.utils.json_to_sheet(assetExportRows());
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Assets');
+  XLSX.writeFile(wb, `gaia-lake-assets-${new Date().toISOString().slice(0,10)}.xlsx`);
+  showToast('Exported to Excel.');
+}
+function exportAssetsToCsv(){
+  if(typeof XLSX === 'undefined'){ showToast('The spreadsheet library is still loading — please try again shortly.','error'); return; }
+  if(!state.assets.length){ showToast('There are no records to export.','error'); return; }
+  const ws = XLSX.utils.json_to_sheet(assetExportRows());
+  const csv = XLSX.utils.sheet_to_csv(ws);
+  const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `gaia-lake-assets-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  showToast('Exported to CSV.');
+}
+
+/* ---------------------------------------------------------------------------
+   18c. CLOUD SYNC — GOOGLE DRIVE LIVE-SYNC (Strategy 2)
    Centralized cloud storage layered on top of the existing IndexedDB layer.
    IndexedDB remains the fast local read/write cache; this module mirrors
    every change to a single master JSON file (gaia_lake_inventory.json) in
@@ -2075,9 +2801,11 @@ function ensureGisReady(){
 async function loadCloudConfig(){
   const c = await idbGet('settings','cloud');
   if(c){
-    state.cloud.clientId = c.clientId || '';
-    state.cloud.apiKey = c.apiKey || '';
-    state.cloud.folderId = c.folderId || '';
+    // An Admin's explicitly saved (non-empty) value always wins; otherwise
+    // fall back to the hardcoded production credentials above.
+    state.cloud.clientId = c.clientId || DEFAULT_CLOUD_CONFIG.clientId;
+    state.cloud.apiKey = c.apiKey || DEFAULT_CLOUD_CONFIG.apiKey;
+    state.cloud.folderId = c.folderId || DEFAULT_CLOUD_CONFIG.folderId;
     state.cloud.fileId = c.fileId || null;
   }
 }
@@ -2099,7 +2827,10 @@ function renderCloudSidebarHtml(){
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-2.64-6.36M21 3v6h-6"/></svg>
         </button>
       </div>
-      <button data-cloud-signout class="w-full text-[12px] px-3 py-2 rounded-lg border sidebar-border sidebar-item text-center">Sign Out</button>`;
+      <div class="flex items-center gap-2">
+        <button data-cloud-refresh-nav class="flex-1 text-[12px] px-3 py-2 rounded-lg border sidebar-border sidebar-item text-center" title="Pull the latest updates made by other managers">Refresh Cloud Data</button>
+        <button data-cloud-signout class="flex-1 text-[12px] px-3 py-2 rounded-lg border sidebar-border sidebar-item text-center">Sign Out</button>
+      </div>`;
   }
   return `<button data-cloud-signin class="w-full flex items-center justify-center gap-2 text-[12.5px] font-medium px-3 py-2.5 rounded-lg cloud-signin-btn">
       <svg width="15" height="15" viewBox="0 0 24 24"><path fill="#fff" d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 16.25 5 12c0-4.1 3.2-7.27 7.2-7.27 3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10 5.35 0 9.25-3.67 9.25-9.09 0-1.15-.15-1.81-.15-1.81z"/></svg>
@@ -2114,6 +2845,7 @@ function renderCloudSidebar(){
   document.querySelectorAll('[data-cloud-signin]').forEach(el=>el.addEventListener('click', cloudSignIn));
   document.querySelectorAll('[data-cloud-signout]').forEach(el=>el.addEventListener('click', cloudSignOut));
   document.querySelectorAll('[data-cloud-refresh]').forEach(el=>el.addEventListener('click', cloudManualSync));
+  document.querySelectorAll('[data-cloud-refresh-nav]').forEach(el=>el.addEventListener('click', cloudManualSync));
 }
 function updateCloudBanner(){
   const banner = document.getElementById('cloud-offline-banner');
@@ -2245,6 +2977,7 @@ async function buildCloudPayload(){
     history: state.history,
     settings: state.settings,
     categories: CATEGORIES,
+    locations: LOCATIONS,
     meta: { version: state.meta.version, changelog: state.meta.changelog },
     counters: counters ? counters.values : {}
   };
@@ -2259,6 +2992,8 @@ async function applyRemoteData(remote){
     if(remote.settings) await idbPut('settings', Object.assign({key:'main'}, remote.settings));
     const cats = Array.isArray(remote.categories) && remote.categories.length ? remote.categories : DEFAULT_CATEGORIES.map(c=>Object.assign({},c));
     await idbPut('meta', { key:'categories', list: cats });
+    const locs = Array.isArray(remote.locations) && remote.locations.length ? remote.locations : DEFAULT_LOCATIONS.map(l=>Object.assign({},l));
+    await idbPut('meta', { key:'locations', list: locs });
     const metaVersion = remote.meta && remote.meta.version ? remote.meta.version : state.meta.version;
     const metaChangelog = remote.meta && remote.meta.changelog ? remote.meta.changelog : state.meta.changelog;
     await idbPut('meta', { key:'version', version: metaVersion, changelog: metaChangelog });
@@ -2526,6 +3261,7 @@ async function loadAllData(){
   state.assets = await idbGetAll('assets');
   state.history = (await idbGetAll('history')).sort((a,b)=> new Date(b.date)-new Date(a.date));
   await loadCategories();
+  await loadLocations();
   await loadSettings();
   await loadCloudConfig();
   await initMeta();
