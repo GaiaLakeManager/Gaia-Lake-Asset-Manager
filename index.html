@@ -5,7 +5,7 @@ Application: Gaia Lake Bungalow Assets and Inventory Manager
 Copyright © 2026. All rights reserved.
 
 Usage Notice: Internal operational tool. Unauthorized copying, modification,
-or redistribution is strictly prohibited..
+or redistribution is strictly prohibited.
 ======================================================================
 -->
 <!DOCTYPE html>
@@ -14,7 +14,7 @@ or redistribution is strictly prohibited..
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
 <title>Gaia Lake Bungalow — Assets &amp; Inventory Manager</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E" />
+<link rel="icon" type="image/png" href="favicon.png" />
 
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -137,7 +137,7 @@ or redistribution is strictly prohibited..
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v3.0</span>
+      <span id="sidebar-version">v3.3</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -196,7 +196,7 @@ or redistribution is strictly prohibited..
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v3.0</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v3.3</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -254,11 +254,11 @@ or redistribution is strictly prohibited..
    0. STATIC CONFIG — locations, categories, conditions
 --------------------------------------------------------------------------- */
 let LOCATIONS = [
-  { code:"R1",  name:"Room 1",         zone:"Guest Areas" },
-  { code:"R2",  name:"Room 2",         zone:"Guest Areas" },
-  { code:"R3",  name:"Room 3",         zone:"Guest Areas" },
-  { code:"R4",  name:"Room 4",         zone:"Guest Areas" },
-  { code:"POOL",name:"Pool",           zone:"Guest Areas" },
+  { code:"RM1",  name:"Room 1",         zone:"Guest Areas" },
+  { code:"RM2",  name:"Room 2",         zone:"Guest Areas" },
+  { code:"RM3",  name:"Room 3",         zone:"Guest Areas" },
+  { code:"RM4",  name:"Room 4",         zone:"Guest Areas" },
+  { code:"POL", name:"Pool",           zone:"Guest Areas" },
   { code:"GDN", name:"Garden",         zone:"Guest Areas" },
   { code:"LBY", name:"Lobby",          zone:"Guest Areas" },
   { code:"GPT", name:"Guest Pantry",   zone:"Guest Areas" },
@@ -283,32 +283,38 @@ let CATEGORIES = [
 ];
 const DEFAULT_CATEGORIES = CATEGORIES.map(c=>Object.assign({},c));
 
-/* Smart Asset Codes — derive a 3-letter code from a custom category name,
-   falling back to a numbered suffix if the derived code already exists. */
+/* Smart Asset Codes — derive a clean 3-character (letters/numbers) code from
+   a custom category or location name, always exactly 3 characters so every
+   generated Item Number barcodes consistently; falls back to a numbered
+   suffix if the derived code already exists. */
 function deriveCategoryCode(name){
-  let base = (name||'').replace(/[^a-zA-Z]/g,'').slice(0,3).toUpperCase();
-  if(base.length < 2) base = (base + 'XXX').slice(0,3);
+  let base = (name||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,3).toUpperCase();
+  if(base.length < 3) base = (base + 'XXX').slice(0,3);
   let code = base, n = 1;
   while(CATEGORIES.some(c=>c.code===code)){
-    n++; code = (base.slice(0,2) + n).slice(0,3);
+    n++; code = (base.slice(0,2) + n).toUpperCase().slice(0,3);
   }
   return code;
 }
 /* Same idea for a location code — derived from the first letters of each
-   significant word (e.g. "Upstairs Lounge" -> "UL"), falling back to a
-   numbered suffix if it collides with an existing code. */
+   significant word (e.g. "Upstairs Lounge" -> "UPL"), falling back to a
+   numbered suffix if it collides with an existing code. Always exactly 3
+   characters. */
 function deriveLocationCode(name){
   const words = (name||'').replace(/[^a-zA-Z0-9\s]/g,'').trim().split(/\s+/).filter(Boolean);
   let base;
-  if(words.length >= 2){
-    base = words.map(w=>w[0]).join('').toUpperCase().slice(0,4);
+  if(words.length >= 3){
+    base = words.slice(0,3).map(w=>w[0]).join('').toUpperCase();
+  } else if(words.length === 2){
+    base = (words[0].slice(0,2) + words[1][0]).toUpperCase();
   } else {
-    base = (words[0]||'LOC').slice(0,4).toUpperCase();
+    base = (words[0]||'LOC').toUpperCase();
   }
-  if(base.length < 2) base = (base + 'XX').slice(0,2);
+  base = base.replace(/[^A-Z0-9]/g,'').slice(0,3);
+  if(base.length < 3) base = (base + 'XXX').slice(0,3);
   let code = base, n = 1;
   while(LOCATIONS.some(l=>l.code===code)){
-    n++; code = (base.slice(0,3) + n).slice(0,4);
+    n++; code = (base.slice(0,2) + n).toUpperCase().slice(0,3);
   }
   return code;
 }
@@ -636,7 +642,7 @@ async function nextAssetNumber(locationName, categoryName){
   const next = cur + 1;
   counters.values[prefix] = next;
   await idbPut('meta', counters);
-  return prefix + String(next).padStart(3,'0');
+  return prefix + String(next).padStart(6,'0');
 }
 async function peekAssetNumber(locationName, categoryName){
   const loc = locByName(locationName), cat = catByName(categoryName);
@@ -644,7 +650,7 @@ async function peekAssetNumber(locationName, categoryName){
   const prefix = `${loc.code}-${cat.code}-`;
   const counters = (await idbGet('meta','counters')) || { key:'counters', values:{} };
   const cur = (counters.values[prefix] || 0) + 1;
-  return prefix + String(cur).padStart(3,'0');
+  return prefix + String(cur).padStart(6,'0');
 }
 
 /* ---------------------------------------------------------------------------
@@ -672,6 +678,12 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'3.3', date: nowISO(), type:'minor', summary:'Roster table shows condition-matching quantity, and the dashboard roster is easier to spot when it opens.',
+    detail:'Replaced the combined "Qty (Total/Usable)" roster column with two separate columns — Total (the asset group\'s overall quantity across all conditions) and QTY (the quantity for just that row\'s own condition, e.g. how many of that item are specifically In Repair or Missing). The Asset Groups stat card now visually highlights on hover and again while its full unfiltered roster is open, so it\'s clear at a glance what triggered the table below. Clicking Asset Groups or a Condition Breakdown badge now automatically scrolls the roster into view instead of leaving a manager to notice it opened further down the page.' },
+  { version:'3.2', date: nowISO(), type:'minor', summary:'Interactive dashboard roster with filters, strict 3-character Location/Category codes, and layout fixes.',
+    detail:'The Dashboard is now a real filterable roster, not just a summary: click the Asset Groups stat card to clear all filters and browse every record, or click any All-Time Condition Breakdown badge to jump straight to that condition. A filter bar sits above the results with independent dropdowns for Asset #, Asset Name, Location, Category, and Condition — combine any of them, and results always stay sorted by Asset #. Each row shows Asset #, Asset Name, Location, Category, Qty (Total/Usable), Condition, Price, and Update Date, with Edit, Split, Duplicate, and Delete actions (Split and Duplicate generate a proper new Item Number; deletions keep full History for audit). Fixed a bug where a handful of built-in locations (the four Rooms and Pool) had 2- or 4-character codes instead of the strict 3-character format used everywhere else, which produced inconsistent Item Numbers like "R2-APP-000001" — Location and Category codes are now always exactly 3 letters/numbers for clean, uniform barcoding, and any current records at the corrected locations were automatically renumbered on upgrade (old numbers kept in History for audit). Fixed the Dashboard search bar\'s magnifying-glass icon overlapping the input text, and fixed the Month/Year Summary card title getting clipped for longer month names.' },
+  { version:'3.1', date: nowISO(), type:'minor', summary:'6-digit Item Numbers, clickable condition roster, Danger Zone lock, and a swappable favicon.',
+    detail:'Item Numbers now use a 6-digit sequence — [Location]-[Category]-000001 (e.g. MGR-FUR-000001) — instead of 3 digits. The counter is unchanged in behavior: it is tracked separately per Location-Category combination, always advances forward, and a deleted number is never reused. The Company Address default is corrected to "3rd Mile Post, Kandalama, Dambulla, Sri Lanka" (existing installs with the old short default are upgraded automatically; any address you\'ve manually customized is left untouched). The All-Time Condition Breakdown badges on the Dashboard are now clickable: selecting one (e.g. Damaged) filters a new roster table beneath it to just that condition, listing Asset #, Name, Location, Category, Qty (Total/Usable), Condition, Price, and Last Updated, with Edit/Duplicate/Delete actions on every row. The Danger Zone (Delete All Records) is now behind the same Admin Email Guard as the rest of master configuration — other managers see it locked, and the underlying delete function itself refuses to run for anyone but the Administrator account. The hardcoded 📦 emoji favicon was removed in favor of a plain <link rel="icon" href="favicon.png"> reference — drop your own favicon.png next to index.html to brand the browser tab.' },
   { version:'3.0', date: nowISO(), type:'major', summary:'Hardcoded production credentials, permanent branding, and an Admin-only configuration lock.',
     detail:'Google API Key, Client ID, and the target shared Drive Folder ID are now hardcoded into the app itself — no one needs to type them in for cloud sync to work, though an Admin can still override them from Settings if the credentials ever need to change. The company logo, name, address, phone, and email are baked in as the permanent defaults shown across the sidebar header, Settings, and printed A4 manifests, while any values you\'ve already customized are kept exactly as they are. Added an Admin Email Guard: only gaialakewebapps@gmail.com sees the Cloud Connection Workspace, Company Metadata & Logo panels, and the Bulk Import/Export & Data Portability tools in Settings — every other signed-in manager sees a clean "locked by the Administrator" notice in their place instead. Export as CSV was added alongside the existing Excel export for spreadsheet-tool compatibility. Added a one-tap "Refresh Cloud Data" button beside Sign Out in the sidebar so a manager who has been editing for a while can instantly pull in the latest updates from other devices.' },
   { version:'2.0', date: nowISO(), type:'major', summary:'Excel export, safe bulk actions, and full Location/Category lifecycle management.',
@@ -697,17 +709,55 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='1.5'),
   DEFAULT_CHANGELOG.find(c=>c.version==='2.0'),
   DEFAULT_CHANGELOG.find(c=>c.version==='3.0'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='3.1'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='3.2'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='3.3'),
 ];
+
+/* One-time correction for a small number of built-in locations that shipped
+   with a 2- or 4-character code (Room 1-4 as "R1".."R4", Pool as "POOL")
+   instead of the strict 3-character format every other zone already used.
+   Regenerates Item Numbers for any current records at those locations using
+   the same safe pattern as a manual rename — the OLD Item Number is kept in
+   History for audit, quantities are untouched. Returns how many records were
+   renumbered so the caller can inform the admin (existing printed barcodes
+   for those items will need reprinting). */
+async function migrateShortLocationCodesV32(){
+  const fixes = { 'R1':'RM1', 'R2':'RM2', 'R3':'RM3', 'R4':'RM4', 'POOL':'POL' };
+  let renumbered = 0, anyCodeChanged = false;
+  for(const loc of LOCATIONS){
+    const newCode = fixes[loc.code];
+    if(!newCode || newCode===loc.code) continue;
+    const oldCode = loc.code;
+    loc.code = newCode;
+    anyCodeChanged = true;
+    const affected = state.assets.filter(a=>a.location===loc.name);
+    for(const row of affected){
+      const oldNum = row.assetNumber;
+      const newNum = await nextAssetNumber(loc.name, row.category);
+      row.assetNumber = newNum || oldNum;
+      row.lastUpdated = nowISO();
+      await idbPut('assets', row);
+      await logHistory('renumbered', Object.assign({}, row, { assetNumber: oldNum,
+        notes: (row.notes?row.notes+' — ':'')+`Renumbered from ${oldNum} (location code corrected ${oldCode} \u2192 ${newCode} for consistent 3-character barcoding)` }));
+      renumbered++;
+    }
+  }
+  if(anyCodeChanged) await saveLocations();
+  return renumbered;
+}
 
 async function initMeta(){
   let m = await idbGet('meta','version');
+  const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'3.0', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'3.3', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
   state.meta.changelog = m.changelog || DEFAULT_CHANGELOG;
   const known = new Set(state.meta.changelog.map(c=>c.version));
+  const crossingTo32 = !isFreshInstall && !known.has('3.2');
   let changed = false;
   for(const entry of MIGRATION_CHANGELOG){
     if(entry && !known.has(entry.version)){
@@ -717,6 +767,10 @@ async function initMeta(){
     }
   }
   if(changed) await idbPut('meta', { key:'version', version: state.meta.version, changelog: state.meta.changelog });
+  if(crossingTo32){
+    const renumbered = await migrateShortLocationCodesV32();
+    if(renumbered) showToast(`Location codes corrected to 3 characters for clean barcoding — ${renumbered} item number(s) were regenerated (old numbers kept in History for audit).`, 'info');
+  }
   document.getElementById('sidebar-version').textContent = 'v'+state.meta.version;
   document.getElementById('footer-version').textContent = 'v'+state.meta.version;
 }
@@ -803,7 +857,12 @@ async function loadSettings(){
     // an Admin's explicitly saved value (non-empty) is always kept as-is.
     Object.keys(DEFAULT_COMPANY).forEach(k=>{ if(!s[k]) s[k] = DEFAULT_COMPANY[k]; });
     if(!s.logo) s.logo = DEFAULT_LOGO_URL;
+    // One-time correction: the address shipped in an earlier version was
+    // just "Kandalama, Sri Lanka" — upgrade that stale exact default to the
+    // full production address without touching any other custom address.
+    if(s.address === 'Kandalama, Sri Lanka') s.address = DEFAULT_COMPANY.address;
     state.settings = Object.assign(state.settings, s);
+    await saveSettingsToDB();
   }
   else { await idbPut('settings', Object.assign({key:'main'}, state.settings)); }
   applyTheme(state.settings.themeColor);
@@ -1037,12 +1096,15 @@ function renderDashboard(){
   CONDITIONS.forEach(c=>condCounts[c.key]=0);
   state.assets.forEach(a=>{ condCounts[a.condition] = (condCounts[a.condition]||0) + Number(a.qty||0); });
 
-  const statCard = (label, value, sub)=>`
-    <div class="bg-white rounded-2xl border border-[#E7E2D3] p-4">
+  const statCard = (label, value, sub, clickKey)=>{
+    const isActive = clickKey==='asset-groups' && dashRosterOpen && !dashFilters.condition && !dashFilters.assetNumber && !dashFilters.assetName && !dashFilters.location && !dashFilters.category;
+    return `
+    <div ${clickKey?`data-stat-click="${clickKey}"`:''} class="rounded-2xl border p-4 transition-colors ${clickKey?'cursor-pointer':''} ${isActive ? 'bg-[#EAE5D2] border-[#C9C3AC]' : `bg-white border-[#E7E2D3] ${clickKey?'hover:bg-[#F1EEE3]':''}`}">
       <p class="text-[10.5px] uppercase tracking-wider font-semibold text-[#a89f85]">${label}</p>
       <p class="font-display text-2xl font-semibold mt-0.5">${value}</p>
       ${sub?`<p class="text-[11px] text-[#8a8471] mt-0.5">${sub}</p>`:''}
     </div>`;
+  };
 
   const lastUpdated = lastUpdatedAsset();
   const lastReceived = lastReceivedEntry();
@@ -1081,13 +1143,13 @@ function renderDashboard(){
     <div class="relative">
       <div class="relative">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#a89f85]"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-        <input id="dash-search" type="text" value="${escapeHtml(dashSearch)}" placeholder="Search by name or asset number…" class="inp pl-10"/>
+        <input id="dash-search" type="text" value="${escapeHtml(dashSearch)}" placeholder="Search by name or asset number…" class="inp" style="padding-left:2.5rem"/>
       </div>
       <div id="dash-search-results" class="${dashSearch?'':'hidden'} absolute z-20 mt-1.5 w-full bg-white rounded-xl border border-[#E7E2D3] shadow-lg overflow-hidden">${dashboardSearchResultsHtml(dashSearch)}</div>
     </div>
 
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      ${statCard('Asset Groups', groupCount)}
+      ${statCard('Asset Groups', groupCount, null, 'asset-groups')}
       ${statCard('Total Quantity', totalQty+' pcs')}
       ${statCard('Usable Quantity', usableQty+' pcs', totalQty? Math.round(usableQty/totalQty*100)+'% of total':'')}
       ${statCard('Total Purchase Value', fmtMoney(totalValue))}
@@ -1099,9 +1161,9 @@ function renderDashboard(){
         ${infoCard('Last Updated Asset', lastUpdated, 'No assets yet.')}
         ${infoCard('Last New Item Received', lastReceived, 'Nothing received yet.')}
         <div id="dash-summary-card" class="bg-white rounded-2xl border border-[#E7E2D3] p-4">
-          <div class="flex items-start justify-between mb-3 gap-2">
-            <div class="min-w-0">
-              <p class="font-display font-semibold text-sm truncate">${dashPeriod==='year'?periodLabel('year'):periodLabel('month')} Summary of Assets and Inventory</p>
+          <div class="flex items-start justify-between mb-3 gap-2 flex-wrap">
+            <div class="min-w-0 flex-1">
+              <p class="font-display font-semibold text-xs sm:text-sm leading-snug">${dashPeriod==='year'?periodLabel('year'):periodLabel('month')} Summary of Assets and Inventory</p>
               <p class="text-[10.5px] text-[#a89f85] truncate">${escapeHtml(state.settings.companyName)}</p>
             </div>
             <div class="flex items-center gap-1.5 shrink-0 no-capture">
@@ -1130,13 +1192,113 @@ function renderDashboard(){
       <div class="flex flex-wrap gap-2">
         ${CONDITIONS.map(c=>{
           const val = condCounts[c.key]||0;
-          return `<span class="inline-flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-full text-xs font-medium ${c.cls}">
+          const active = dashFilters.condition===c.key;
+          return `<button data-cond-filter="${c.key}" class="inline-flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-full text-xs font-medium cursor-pointer hover:opacity-80 transition-all ${c.cls} ${active?'ring-2 ring-offset-1':''}" style="${active?`--tw-ring-color:${c.dot}`:''}">
             <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${c.dot}"></span>${c.key} <span class="font-mono font-semibold">${val}</span>
-          </span>`;
+          </button>`;
         }).join('')}
       </div>
+      ${dashRosterOpen ? `
+      <div id="dash-roster-section" class="mt-3 pt-3 border-t border-[#F1EEE3]">
+        ${dashFilterBarHtml()}
+        ${renderRosterTable(filteredRosterRows(), groups)}
+      </div>` : ''}
     </div>
   </div>`;
+}
+function dashFilterBarHtml(){
+  const numbers = [...new Set(state.assets.map(a=>a.assetNumber))].sort((a,b)=>String(a).localeCompare(String(b)));
+  const names = [...new Set(state.assets.map(a=>a.name))].sort((a,b)=>String(a).localeCompare(String(b)));
+  const selStyle = 'style="width:auto;min-width:130px"';
+  const anyActive = dashFilters.assetNumber||dashFilters.assetName||dashFilters.location||dashFilters.category||dashFilters.condition;
+  return `
+  <div class="flex flex-wrap items-center gap-2 mb-3">
+    <select id="rf-assetnum" class="inp text-xs" ${selStyle}>
+      <option value="">All Asset #</option>
+      ${numbers.map(n=>`<option value="${escapeHtml(n)}" ${dashFilters.assetNumber===n?'selected':''}>${escapeHtml(n)}</option>`).join('')}
+    </select>
+    <select id="rf-assetname" class="inp text-xs" ${selStyle}>
+      <option value="">All Asset Names</option>
+      ${names.map(n=>`<option value="${escapeHtml(n)}" ${dashFilters.assetName===n?'selected':''}>${escapeHtml(n)}</option>`).join('')}
+    </select>
+    <select id="rf-location" class="inp text-xs" ${selStyle}>
+      <option value="">All Locations</option>
+      ${LOCATIONS.map(l=>`<option value="${escapeHtml(l.name)}" ${dashFilters.location===l.name?'selected':''}>${escapeHtml(l.name)}</option>`).join('')}
+    </select>
+    <select id="rf-category" class="inp text-xs" ${selStyle}>
+      <option value="">All Categories</option>
+      ${CATEGORIES.map(c=>`<option value="${escapeHtml(c.name)}" ${dashFilters.category===c.name?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}
+    </select>
+    <select id="rf-condition" class="inp text-xs" ${selStyle}>
+      <option value="">All Conditions</option>
+      ${CONDITIONS.map(c=>`<option value="${c.key}" ${dashFilters.condition===c.key?'selected':''}>${c.key}</option>`).join('')}
+    </select>
+    ${anyActive ? `<button id="rf-clear" class="text-xs px-3 py-1.5 rounded-lg border border-[#E2DFD3] hover:bg-[#F1EEE3]">Clear Filters</button>` : ''}
+  </div>`;
+}
+function filteredRosterRows(){
+  return state.assets.filter(a=>
+    (!dashFilters.assetNumber || a.assetNumber===dashFilters.assetNumber) &&
+    (!dashFilters.assetName || a.name===dashFilters.assetName) &&
+    (!dashFilters.location || a.location===dashFilters.location) &&
+    (!dashFilters.category || a.category===dashFilters.category) &&
+    (!dashFilters.condition || a.condition===dashFilters.condition)
+  ).sort((a,b)=>String(a.assetNumber).localeCompare(String(b.assetNumber)));
+}
+function renderRosterTable(rows, groups){
+  if(!rows.length){
+    return `<div class="text-xs text-[#a89f85] py-2">No items match the current filters.</div>`;
+  }
+  const trs = rows.map(a=>{
+    const grp = groups[a.assetNumber] || [a];
+    const { total } = groupTotals(grp);
+    const c = condMeta(a.condition);
+    return `<tr class="border-b border-[#F1EEE3] last:border-0">
+      <td class="py-2 pr-3 font-mono text-[11px] text-[#8a8471] whitespace-nowrap">${escapeHtml(a.assetNumber)}</td>
+      <td class="py-2 pr-3 font-medium">${escapeHtml(a.name)}</td>
+      <td class="py-2 pr-3 text-[#8a8471]">${escapeHtml(a.location)}</td>
+      <td class="py-2 pr-3 text-[#8a8471]">${escapeHtml(a.category)}</td>
+      <td class="py-2 pr-3 font-mono whitespace-nowrap">${total}</td>
+      <td class="py-2 pr-3 font-mono whitespace-nowrap">${a.qty}</td>
+      <td class="py-2 pr-3"><span class="text-[11px] px-2 py-0.5 rounded-full font-medium ${c.cls}">${escapeHtml(a.condition)}</span></td>
+      <td class="py-2 pr-3 font-mono whitespace-nowrap">${fmtMoney(a.purchasePrice)}</td>
+      <td class="py-2 pr-3 text-[#8a8471] whitespace-nowrap">${fmtDate(a.lastUpdated)}</td>
+      <td class="py-2 pl-1">
+        <div class="flex items-center gap-1 shrink-0">
+          <button data-edit-entry="${a.id}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Edit">${iconEdit()}</button>
+          <button data-split-entry="${a.assetNumber}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Split">${iconSplit()}</button>
+          <button data-dup-entry="${a.id}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Duplicate">${iconDup()}</button>
+          <button data-del-entry="${a.id}" class="p-1.5 rounded-lg hover:bg-red-50 text-red-500" title="Delete">${iconTrash()}</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+  return `
+  <div class="overflow-x-auto scroll-thin">
+    <table class="w-full text-xs border-collapse">
+      <thead>
+        <tr class="text-left text-[10.5px] uppercase tracking-wide text-[#a89f85] border-b border-[#E7E2D3]">
+          <th class="py-1.5 pr-3 font-semibold">Asset #</th>
+          <th class="py-1.5 pr-3 font-semibold">Asset Name</th>
+          <th class="py-1.5 pr-3 font-semibold">Location</th>
+          <th class="py-1.5 pr-3 font-semibold">Category</th>
+          <th class="py-1.5 pr-3 font-semibold">Total</th>
+          <th class="py-1.5 pr-3 font-semibold">QTY</th>
+          <th class="py-1.5 pr-3 font-semibold">Condition</th>
+          <th class="py-1.5 pr-3 font-semibold">Price</th>
+          <th class="py-1.5 pr-3 font-semibold">Update Date</th>
+          <th class="py-1.5 pl-1 font-semibold">Actions</th>
+        </tr>
+      </thead>
+      <tbody>${trs}</tbody>
+    </table>
+  </div>`;
+}
+function scrollToDashRoster(){
+  requestAnimationFrame(()=>{
+    const sec = document.getElementById('dash-roster-section');
+    if(sec) sec.scrollIntoView({ behavior:'smooth', block:'start' });
+  });
 }
 function dashboardSearchResultsHtml(query){
   if(!query) return '';
@@ -1257,6 +1419,7 @@ function iconFallback(){ return `<svg width="24" height="24" viewBox="0 0 24 24"
 function iconEdit(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>`; }
 function iconDup(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`; }
 function iconTrash(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6"/></svg>`; }
+function iconSplit(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v12M18 3v6M18 15a3 3 0 100 6 3 3 0 000-6zM6 15a3 3 0 100 6 3 3 0 000-6zM6 15c0-5 12-3 12-9"/></svg>`; }
 function iconCheckSquare(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>`; }
 function iconAlertTriangle(){ return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86l-8.18 14.18A2 2 0 003.82 21h16.36a2 2 0 001.71-2.96L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>`; }
 function iconLock(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>`; }
@@ -1637,6 +1800,35 @@ function bindViewEvents(){
   });
   const summaryDownloadBtn = document.getElementById('dash-summary-download');
   if(summaryDownloadBtn) summaryDownloadBtn.addEventListener('click', downloadSummaryCardImage);
+  document.querySelectorAll('[data-cond-filter]').forEach(b=>b.addEventListener('click', ()=>{
+    const key = b.getAttribute('data-cond-filter');
+    const wasSame = dashFilters.condition===key;
+    const anyOtherFilter = dashFilters.assetNumber||dashFilters.assetName||dashFilters.location||dashFilters.category;
+    dashFilters.condition = wasSame ? '' : key;
+    dashRosterOpen = !(wasSame && !anyOtherFilter);
+    render();
+    if(dashRosterOpen) scrollToDashRoster();
+  }));
+  document.querySelectorAll('[data-stat-click="asset-groups"]').forEach(el=>el.addEventListener('click', ()=>{
+    dashFilters = { assetNumber:'', assetName:'', location:'', category:'', condition:'' };
+    dashRosterOpen = true;
+    render();
+    scrollToDashRoster();
+  }));
+  (function bindDashRosterFilters(){
+    const map = { 'rf-assetnum':'assetNumber', 'rf-assetname':'assetName', 'rf-location':'location', 'rf-category':'category', 'rf-condition':'condition' };
+    Object.keys(map).forEach(id=>{
+      const el = document.getElementById(id);
+      if(el) el.addEventListener('change', ()=>{ dashFilters[map[id]] = el.value; render(); });
+    });
+    const clearBtn = document.getElementById('rf-clear');
+    if(clearBtn) clearBtn.addEventListener('click', ()=>{ dashFilters = { assetNumber:'', assetName:'', location:'', category:'', condition:'' }; render(); });
+  })();
+  document.querySelectorAll('[data-split-entry]').forEach(b=>b.addEventListener('click', ()=>{
+    const base = b.getAttribute('data-split-entry');
+    const rep = state.assets.find(a=>a.assetNumber===base);
+    if(rep) openEditor(rep, { split:true, baseAssetNumber: base });
+  }));
 
   // location card actions
   document.querySelectorAll('[data-edit-entry]').forEach(b=>b.addEventListener('click', ()=>{
@@ -1779,6 +1971,8 @@ let historySearch = '';
 let historySort = 'date_desc';
 let dashSearch = '';
 let dashPeriod = 'month';
+let dashRosterOpen = false;
+let dashFilters = { assetNumber:'', assetName:'', location:'', category:'', condition:'' };
 
 function renderHistoryView(){
   const rows = filterSortHistory();
@@ -1942,7 +2136,7 @@ function renderSettingsView(){
 
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
       <p class="font-display font-semibold">Asset Categories</p>
-      <p class="text-xs text-[#8a8471]">New categories appear instantly in the New Item form's Category dropdown. Asset codes are auto-derived from the first three letters of the category name (e.g. Glassware → GLA, producing codes like LBY-GLA-001). Renaming regenerates Item Numbers for records using it (old numbers stay in History for audit); a category can only be deleted once no current records use it.</p>
+      <p class="text-xs text-[#8a8471]">New categories appear instantly in the New Item form's Category dropdown. Asset codes are auto-derived from the first three letters of the category name (e.g. Glassware → GLA, producing codes like LBY-GLA-000001). Renaming regenerates Item Numbers for records using it (old numbers stay in History for audit); a category can only be deleted once no current records use it.</p>
       <div class="flex flex-wrap gap-2">
         ${CATEGORIES.map(c=>`<span class="inline-flex items-center gap-1 text-xs font-mono pl-2.5 pr-1.5 py-1 rounded-full theme-tint theme-text font-semibold">
           ${escapeHtml(c.name)} · ${c.code}
@@ -2096,11 +2290,12 @@ function renderSettingsView(){
       <p id="excel-import-filename" class="text-xs text-[#a89f85]"></p>
     </section>` : adminLockNotice('Bulk Import & Export — Data Tools')}
 
+    ${admin ? `
     <section class="bg-white rounded-2xl border border-red-200 p-5 space-y-3">
       <p class="font-display font-semibold text-red-600 flex items-center gap-2">${iconAlertTriangle()} Danger Zone</p>
       <p class="text-xs text-[#8a8471]">Useful right before a fresh bulk import. This clears all current inventory records — History is kept for audit and is not affected.</p>
       <button id="s-delete-all" class="px-4 py-2.5 rounded-xl border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50">Delete All Records</button>
-    </section>
+    </section>` : adminLockNotice('Danger Zone')}
 
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-3">
       <div class="flex items-center justify-between">
@@ -2738,6 +2933,7 @@ async function bulkDeleteSelected(){
   showToast(`Deleted ${rows.length} record(s).`,'info');
 }
 async function deleteAllRecords(){
+  if(!isAdminSession()){ showToast('Only the Administrator account can delete all records.','error'); return; }
   if(!state.assets.length){ showToast('There are no records to delete.','info'); return; }
   const typed = prompt(`This permanently deletes all ${state.assets.length} current inventory record(s). History is kept for audit and is not affected.\n\nType DELETE to confirm:`);
   if(typed !== 'DELETE'){ showToast('Delete All cancelled.','info'); return; }
