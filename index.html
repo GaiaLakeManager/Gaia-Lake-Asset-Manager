@@ -66,6 +66,7 @@ or redistribution is strictly prohibited.
   #a4-preview{ width:210mm; min-height:297mm; box-shadow:0 4px 24px rgba(0,0,0,0.12); }
   @media (max-width:1024px){ #a4-preview{ width:100%; min-height:auto; } }
   @media print{
+    @page{ size: A4; margin: 0.75in; }
     body *{ visibility:hidden; }
     #print-root, #print-root *{ visibility:visible; }
     #print-root{ position:absolute; top:0; left:0; width:100%; }
@@ -85,7 +86,8 @@ or redistribution is strictly prohibited.
   /* App-wide dark mode — scoped to #shell only, so #print-root (used for
      print/PDF output) is never affected regardless of the active mode. */
   #shell.dark{ background:#14171b; color:#EDEAE0; }
-  #shell.dark [class*="bg-white"]{ background-color:#1c2027 !important; }
+  #shell.dark [class~="bg-white"]:not(.toggle-knob){ background-color:#1c2027 !important; }
+  #shell.dark [class*="bg-[#E2DFD3]"]{ background-color:#333844 !important; }
   #shell.dark [class*="border-[#E7E2D3]"]{ border-color:#2b2f38 !important; }
   #shell.dark [class*="border-[#E2DFD3]"]{ border-color:#333844 !important; }
   #shell.dark [class*="border-[#EFEBDD]"]{ border-color:#2b2f38 !important; }
@@ -101,10 +103,27 @@ or redistribution is strictly prohibited.
   #shell.dark [class*="text-[#4b4736]"]{ color:#cfcbbc !important; }
   #shell.dark [class*="text-[#c9c3ac]"]{ color:#6b6f78 !important; }
   #shell.dark [class*="text-[#21261f]"]{ color:#EDEAE0 !important; }
-  #shell.dark h1, #shell.dark h2, #shell.dark p, #shell.dark span, #shell.dark td, #shell.dark label{ color:inherit; }
+  #shell.dark h1, #shell.dark h2, #shell.dark p, #shell.dark span:not([class*="badge-"]), #shell.dark td, #shell.dark label{ color:inherit; }
   #shell.dark .inp{ background:#1c2027 !important; border-color:#333844 !important; color:#EDEAE0 !important; }
   #shell.dark ::placeholder{ color:#6b6f78 !important; }
   #shell.dark .modal-backdrop ~ *, #shell.dark [class*="bg-[#F7F5EF]"]{ color:inherit; }
+  #shell.dark{ --tw-ring-offset-color:#1c2027; }
+  /* Condition badges (breakdown pills, roster/table Condition column, Information
+     page, etc.) get their own dark-appropriate colors instead of the pale
+     light-mode pastels, which were unreadable against a dark card. */
+  #shell.dark .badge-usable{ background:#14532d; color:#86efac; }
+  #shell.dark .badge-damaged{ background:#78350f; color:#fde68a; }
+  #shell.dark .badge-repair{ background:#7c2d12; color:#fdba74; }
+  #shell.dark .badge-discarded{ background:#7f1d1d; color:#fca5a5; }
+  #shell.dark .badge-missing{ background:#374151; color:#d1d5db; }
+  .stat-card-active{ background:#EAE5D2; border-color:#C9C3AC; }
+  #shell.dark .stat-card-active{ background:#332d1c !important; border-color:#5c4f2e !important; }
+  /* Undo/attention banner (Settings) — same pale-bg-with-dark-text pattern as
+     the offline banner above, generalized so any element using these exact
+     utility classes gets a readable dark-mode pairing automatically. */
+  #shell.dark [class*="bg-[#FEF3C7]"]{ background-color:#3a2f10 !important; }
+  #shell.dark [class*="text-[#7c5e10]"]{ color:#fbd88a !important; }
+  #shell.dark [class*="border-[#FDE68A]"]{ border-color:#5c4a17 !important; }
 
   /* --- Cloud Sync (Google Drive Live-Sync) — additive only, does not alter
      any existing layout/theme rules above. --- */
@@ -137,7 +156,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v3.3</span>
+      <span id="sidebar-version">v4.0</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -196,7 +215,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v3.3</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.0</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -219,7 +238,7 @@ or redistribution is strictly prohibited.
 <div id="bulk-picker-dialog" class="fixed inset-0 z-50 hidden items-center justify-center modal-backdrop no-print p-4">
   <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
     <p class="font-display font-semibold text-lg mb-1" id="bulk-picker-title">Move Selected Items</p>
-    <p class="text-sm text-[#635e4d] mb-4">Quantity is not affected — only the assignment changes, and each item gets a freshly generated Item Number.</p>
+    <p class="text-sm text-[#635e4d] mb-4">Quantity is not affected — only the assignment changes, and each item gets a freshly generated Asset Number.</p>
     <label class="lbl">New value</label>
     <select id="bulk-picker-select" class="inp"></select>
     <div class="flex gap-3 justify-end mt-5">
@@ -285,7 +304,7 @@ const DEFAULT_CATEGORIES = CATEGORIES.map(c=>Object.assign({},c));
 
 /* Smart Asset Codes — derive a clean 3-character (letters/numbers) code from
    a custom category or location name, always exactly 3 characters so every
-   generated Item Number barcodes consistently; falls back to a numbered
+   generated Asset Number barcodes consistently; falls back to a numbered
    suffix if the derived code already exists. */
 function deriveCategoryCode(name){
   let base = (name||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,3).toUpperCase();
@@ -397,21 +416,21 @@ function idbGet(storeName,key){
 function idbPut(storeName,value){
   return new Promise((resolve,reject)=>{
     const req = tx(storeName,"readwrite").put(value);
-    req.onsuccess = ()=>{ resolve(value); scheduleCloudPush(); };
+    req.onsuccess = ()=>{ resolve(value); scheduleCloudPush(storeName, value); };
     req.onerror = (e)=>reject(e.target.error);
   });
 }
 function idbDelete(storeName,key){
   return new Promise((resolve,reject)=>{
     const req = tx(storeName,"readwrite").delete(key);
-    req.onsuccess = ()=>{ resolve(true); scheduleCloudPush(); };
+    req.onsuccess = ()=>{ resolve(true); scheduleCloudPush(storeName); };
     req.onerror = (e)=>reject(e.target.error);
   });
 }
 function idbClear(storeName){
   return new Promise((resolve,reject)=>{
     const req = tx(storeName,"readwrite").clear();
-    req.onsuccess = ()=>{ resolve(true); scheduleCloudPush(); };
+    req.onsuccess = ()=>{ resolve(true); scheduleCloudPush(storeName); };
     req.onerror = (e)=>reject(e.target.error);
   });
 }
@@ -605,11 +624,14 @@ const state = {
   selectedGroups: new Set(),
   cloud: {
     clientId: DEFAULT_CLOUD_CONFIG.clientId, apiKey: DEFAULT_CLOUD_CONFIG.apiKey, folderId: DEFAULT_CLOUD_CONFIG.folderId,
-    fileId:null,                                   // Drive file id of gaia_lake_inventory.json once known
+    fileId:null,                                   // Drive file id of gaia_lake_inventory.json (active state) once known
+    historyFileId:null,                            // Drive file id of gaia_Asset_history_archive.json once known
     connected:false, userEmail:null,
     accessToken:null, tokenExpiresAt:0,
     syncing:false, applyingRemote:false, lastSync:null, lastRemoteModified:null,
-    dirty:false,
+    dirty:false, syncReady:false,                  // syncReady only flips true once the initial post-login pull has landed — blocks any push before that
+    historyLoaded:false, historySyncing:false, historySyncReady:false, historyDirty:false,
+    lastHistorySync:null, lastHistoryRemoteModified:null,
   },
 };
 let lastBulkUndo = null;
@@ -678,18 +700,24 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.0', date: nowISO(), type:'major', summary:'Cloud sync overhaul: fixed a login race that could let stale offline data overwrite the shared Drive file, and split the history/changelog log into its own lightweight file.',
+    detail:'Fixed a Cloud Sync priority bug: on sign-in, the app now guarantees a full pull FROM Google Drive lands on the device FIRST, and blocks every auto-sync push until that pull has completed — closing a race where stale local/offline data could momentarily overwrite the shared Drive file right after login, before the fresh remote copy had finished loading. Restructured cloud storage into two Drive files: gaia_lake_inventory.json now holds only active assets, Settings, and current state, and stays small and fast on every login, edit, and 20-second background sync; the full History action log and version changelog moved to a new gaia_Asset_history_archive.json, which is only fetched from or pushed to Drive the first time the History page or Settings (where the changelog lives) is opened in a session. History and changelog entries merge across devices instead of overwriting, so nothing recorded on another device is lost when this device\'s archive loads. Everyday sync payloads are meaningfully smaller as a result, with no change to how assets, History, or the changelog look or behave on screen.' },
+  { version:'3.5', date: nowISO(), type:'minor', summary:'Quality pass: consistent Asset Number wording, more dark mode fixes, real 0.75in PDF margins, and name/location/category autocomplete.',
+    detail:'Full app review for consistency, dark mode coverage, print/PDF output, and cross-device compatibility. Standardized a few toast messages that said "item number(s)" to "Asset Number(s)" to match the term used everywhere else (Asset #, Asset Number, Asset Name are the only names used across the whole app — nothing is called an "Item Number"). Dark Mode: fixed the Dark Mode toggle\'s own switch knob turning invisible against its track, and fixed a couple of hover effects (on category/location edit icons and the cloud Sync Now button) that were being forced to a solid dark block instead of their intended subtle highlight. PDF export (Print & Export → PDF, and single-item manifest PDFs) now has a real 0.75in margin on every side of every page, matching the existing browser Print output — previously the PDF path placed content edge-to-edge with no margin at all, which is what was cutting text at the page edge. Typing a new Asset Name, Category Name, or Location Name now suggests matching existing entries to pick from — same type-ahead already used for Sub-category — so it\'s easy to reuse "Main Kitchen" instead of accidentally creating a near-duplicate "Kitchen".' },
+  { version:'3.4', date: nowISO(), type:'minor', summary:'New Information page for condition definitions, dark mode readability fixes, and a downloaded-summary layout fix.',
+    detail:'Added an Information page to the sidebar, right before Settings — a quick-reference "Assets Condition Definition" table explaining what each status means (Usable, Unusable, Damaged, In Repair, Missing, Discarded), with each row color-matched to that condition\'s badge color used everywhere else in the app. Fixed two Dark Mode readability bugs: the Asset Groups stat card\'s number became invisible while its roster was open, because the active-state highlight used a background color the dark-mode styles didn\'t know to re-color — it now uses a proper dark-aware highlight class. Separately, every condition badge (the All-Time Condition Breakdown pills, the roster table\'s Condition column, History, and the new Information page) was rendering with pale light-mode background colors but the badge\'s own text color was being silently overridden to near-white by an overly broad dark-mode rule — badges now keep readable, dark-appropriate colors of their own. Fixed the downloaded Month/Year Summary PNG (Download PNG button) where the title could visually overlap the company name row — reduced the title font size, added more spacing, and the export now waits for web fonts to finish loading before capturing the image so layout is measured correctly.' },
   { version:'3.3', date: nowISO(), type:'minor', summary:'Roster table shows condition-matching quantity, and the dashboard roster is easier to spot when it opens.',
     detail:'Replaced the combined "Qty (Total/Usable)" roster column with two separate columns — Total (the asset group\'s overall quantity across all conditions) and QTY (the quantity for just that row\'s own condition, e.g. how many of that item are specifically In Repair or Missing). The Asset Groups stat card now visually highlights on hover and again while its full unfiltered roster is open, so it\'s clear at a glance what triggered the table below. Clicking Asset Groups or a Condition Breakdown badge now automatically scrolls the roster into view instead of leaving a manager to notice it opened further down the page.' },
   { version:'3.2', date: nowISO(), type:'minor', summary:'Interactive dashboard roster with filters, strict 3-character Location/Category codes, and layout fixes.',
-    detail:'The Dashboard is now a real filterable roster, not just a summary: click the Asset Groups stat card to clear all filters and browse every record, or click any All-Time Condition Breakdown badge to jump straight to that condition. A filter bar sits above the results with independent dropdowns for Asset #, Asset Name, Location, Category, and Condition — combine any of them, and results always stay sorted by Asset #. Each row shows Asset #, Asset Name, Location, Category, Qty (Total/Usable), Condition, Price, and Update Date, with Edit, Split, Duplicate, and Delete actions (Split and Duplicate generate a proper new Item Number; deletions keep full History for audit). Fixed a bug where a handful of built-in locations (the four Rooms and Pool) had 2- or 4-character codes instead of the strict 3-character format used everywhere else, which produced inconsistent Item Numbers like "R2-APP-000001" — Location and Category codes are now always exactly 3 letters/numbers for clean, uniform barcoding, and any current records at the corrected locations were automatically renumbered on upgrade (old numbers kept in History for audit). Fixed the Dashboard search bar\'s magnifying-glass icon overlapping the input text, and fixed the Month/Year Summary card title getting clipped for longer month names.' },
-  { version:'3.1', date: nowISO(), type:'minor', summary:'6-digit Item Numbers, clickable condition roster, Danger Zone lock, and a swappable favicon.',
-    detail:'Item Numbers now use a 6-digit sequence — [Location]-[Category]-000001 (e.g. MGR-FUR-000001) — instead of 3 digits. The counter is unchanged in behavior: it is tracked separately per Location-Category combination, always advances forward, and a deleted number is never reused. The Company Address default is corrected to "3rd Mile Post, Kandalama, Dambulla, Sri Lanka" (existing installs with the old short default are upgraded automatically; any address you\'ve manually customized is left untouched). The All-Time Condition Breakdown badges on the Dashboard are now clickable: selecting one (e.g. Damaged) filters a new roster table beneath it to just that condition, listing Asset #, Name, Location, Category, Qty (Total/Usable), Condition, Price, and Last Updated, with Edit/Duplicate/Delete actions on every row. The Danger Zone (Delete All Records) is now behind the same Admin Email Guard as the rest of master configuration — other managers see it locked, and the underlying delete function itself refuses to run for anyone but the Administrator account. The hardcoded 📦 emoji favicon was removed in favor of a plain <link rel="icon" href="favicon.png"> reference — drop your own favicon.png next to index.html to brand the browser tab.' },
+    detail:'The Dashboard is now a real filterable roster, not just a summary: click the Asset Groups stat card to clear all filters and browse every record, or click any All-Time Condition Breakdown badge to jump straight to that condition. A filter bar sits above the results with independent dropdowns for Asset #, Asset Name, Location, Category, and Condition — combine any of them, and results always stay sorted by Asset #. Each row shows Asset #, Asset Name, Location, Category, Qty (Total/Usable), Condition, Price, and Update Date, with Edit, Split, Duplicate, and Delete actions (Split and Duplicate generate a proper new Asset Number; deletions keep full History for audit). Fixed a bug where a handful of built-in locations (the four Rooms and Pool) had 2- or 4-character codes instead of the strict 3-character format used everywhere else, which produced inconsistent Asset Numbers like "R2-APP-000001" — Location and Category codes are now always exactly 3 letters/numbers for clean, uniform barcoding, and any current records at the corrected locations were automatically renumbered on upgrade (old numbers kept in History for audit). Fixed the Dashboard search bar\'s magnifying-glass icon overlapping the input text, and fixed the Month/Year Summary card title getting clipped for longer month names.' },
+  { version:'3.1', date: nowISO(), type:'minor', summary:'6-digit Asset Numbers, clickable condition roster, Danger Zone lock, and a swappable favicon.',
+    detail:'Asset Numbers now use a 6-digit sequence — [Location]-[Category]-000001 (e.g. MGR-FUR-000001) — instead of 3 digits. The counter is unchanged in behavior: it is tracked separately per Location-Category combination, always advances forward, and a deleted number is never reused. The Company Address default is corrected to "3rd Mile Post, Kandalama, Dambulla, Sri Lanka" (existing installs with the old short default are upgraded automatically; any address you\'ve manually customized is left untouched). The All-Time Condition Breakdown badges on the Dashboard are now clickable: selecting one (e.g. Damaged) filters a new roster table beneath it to just that condition, listing Asset #, Name, Location, Category, Qty (Total/Usable), Condition, Price, and Last Updated, with Edit/Duplicate/Delete actions on every row. The Danger Zone (Delete All Records) is now behind the same Admin Email Guard as the rest of master configuration — other managers see it locked, and the underlying delete function itself refuses to run for anyone but the Administrator account. The hardcoded 📦 emoji favicon was removed in favor of a plain <link rel="icon" href="favicon.png"> reference — drop your own favicon.png next to index.html to brand the browser tab.' },
   { version:'3.0', date: nowISO(), type:'major', summary:'Hardcoded production credentials, permanent branding, and an Admin-only configuration lock.',
     detail:'Google API Key, Client ID, and the target shared Drive Folder ID are now hardcoded into the app itself — no one needs to type them in for cloud sync to work, though an Admin can still override them from Settings if the credentials ever need to change. The company logo, name, address, phone, and email are baked in as the permanent defaults shown across the sidebar header, Settings, and printed A4 manifests, while any values you\'ve already customized are kept exactly as they are. Added an Admin Email Guard: only gaialakewebapps@gmail.com sees the Cloud Connection Workspace, Company Metadata & Logo panels, and the Bulk Import/Export & Data Portability tools in Settings — every other signed-in manager sees a clean "locked by the Administrator" notice in their place instead. Export as CSV was added alongside the existing Excel export for spreadsheet-tool compatibility. Added a one-tap "Refresh Cloud Data" button beside Sign Out in the sidebar so a manager who has been editing for a while can instantly pull in the latest updates from other devices.' },
   { version:'2.0', date: nowISO(), type:'major', summary:'Excel export, safe bulk actions, and full Location/Category lifecycle management.',
-    detail:'Added Export as Excel (.xlsx) alongside the existing Excel/CSV import, so data can be shared with anyone who doesn\'t have web access via a simple import/export round-trip. Added a Danger Zone in Settings to Delete All Records in one confirmed action (History is preserved for audit) — handy right before a fresh bulk import. Locations and Categories can now be renamed directly in Settings: renaming instantly regenerates the Item Number on every affected record to reflect the new name, while the OLD Item Number is kept in History for audit and quantities are never touched; a one-step Undo is available immediately after. Locations/Categories can only be deleted once no current records use them, keeping the list to a practical minimum without losing audit history. Added a Select Items mode on each Location page for bulk actions — Move to Location and Change Category now update many records at once instead of one at a time, and Delete Selected removes a chosen batch with a warning. The Sub-category field is now a type-ahead that suggests existing values as you type. Fixed the Settings sidebar icon, which was rendering as a broken/partial gear — it\'s now the full gear-wheel icon used elsewhere in the app.' },
+    detail:'Added Export as Excel (.xlsx) alongside the existing Excel/CSV import, so data can be shared with anyone who doesn\'t have web access via a simple import/export round-trip. Added a Danger Zone in Settings to Delete All Records in one confirmed action (History is preserved for audit) — handy right before a fresh bulk import. Locations and Categories can now be renamed directly in Settings: renaming instantly regenerates the Asset Number on every affected record to reflect the new name, while the OLD Asset Number is kept in History for audit and quantities are never touched; a one-step Undo is available immediately after. Locations/Categories can only be deleted once no current records use them, keeping the list to a practical minimum without losing audit history. Added a Select Items mode on each Location page for bulk actions — Move to Location and Change Category now update many records at once instead of one at a time, and Delete Selected removes a chosen batch with a warning. The Sub-category field is now a type-ahead that suggests existing values as you type. Fixed the Settings sidebar icon, which was rendering as a broken/partial gear — it\'s now the full gear-wheel icon used elsewhere in the app.' },
   { version:'1.5', date: nowISO(), type:'major', summary:'Google Drive Live-Sync and one-click Excel/CSV bulk import.',
-    detail:'Added Strategy 2 cloud storage: sign in with Google from the sidebar, connect a shared Drive folder in Settings, and every device reads/writes the same live gaia_lake_inventory.json master file — changes push automatically on every edit and pull in for other authorized devices roughly every 20 seconds, with a manual Sync Now and a clear "Running Offline" banner when signed out. Added Bulk Import from Spreadsheet: upload an existing Excel/CSV file and the app maps flexible column headers (renamed or reordered columns still work), auto-generates a fresh Item Number for every row from its location and category, and auto-creates any category or location the sheet references that doesn\'t exist yet — with a preview-and-confirm step before anything is written, so existing records are never overwritten.' },
+    detail:'Added Strategy 2 cloud storage: sign in with Google from the sidebar, connect a shared Drive folder in Settings, and every device reads/writes the same live gaia_lake_inventory.json master file — changes push automatically on every edit and pull in for other authorized devices roughly every 20 seconds, with a manual Sync Now and a clear "Running Offline" banner when signed out. Added Bulk Import from Spreadsheet: upload an existing Excel/CSV file and the app maps flexible column headers (renamed or reordered columns still work), auto-generates a fresh Asset Number for every row from its location and category, and auto-creates any category or location the sheet references that doesn\'t exist yet — with a preview-and-confirm step before anything is written, so existing records are never overwritten.' },
   { version:'1.4', date: nowISO(), type:'major', summary:'Dashboard rebuild, dark mode, and customizable sidebar color.',
     detail:'Set Damaged to #FFFF00 and In Repair to #FF8000 across badges and charts. Added a search bar to the Dashboard with a live results dropdown. Added an Information section with Last Updated Asset, Last New Item Received, and a Month/Year condition summary card titled "[Month/Year] Summary of Assets and Inventory" — screenshot-ready with its own Download PNG button for sharing reports. Compacted the All-Time condition breakdown into a single chip row and removed the redundant Locations grid (already covered by the sidebar) so the Overview fits one screen without scrolling on desktop. Added a dark, customizable sidebar (color picker in Settings) and a separate app-wide Dark Mode / Light Mode toggle. Fixed a new batch entry incorrectly inheriting its original group\'s creation date.' },
   { version:'1.3', date: nowISO(), type:'major', summary:'Image rendering fix, smarter split workflow, dedicated Print & Export page.',
@@ -712,13 +740,16 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='3.1'),
   DEFAULT_CHANGELOG.find(c=>c.version==='3.2'),
   DEFAULT_CHANGELOG.find(c=>c.version==='3.3'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='3.4'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='3.5'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.0'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
    with a 2- or 4-character code (Room 1-4 as "R1".."R4", Pool as "POOL")
    instead of the strict 3-character format every other zone already used.
-   Regenerates Item Numbers for any current records at those locations using
-   the same safe pattern as a manual rename — the OLD Item Number is kept in
+   Regenerates Asset Numbers for any current records at those locations using
+   the same safe pattern as a manual rename — the OLD Asset Number is kept in
    History for audit, quantities are untouched. Returns how many records were
    renumbered so the caller can inform the admin (existing printed barcodes
    for those items will need reprinting). */
@@ -751,7 +782,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'3.3', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.0', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -769,7 +800,7 @@ async function initMeta(){
   if(changed) await idbPut('meta', { key:'version', version: state.meta.version, changelog: state.meta.changelog });
   if(crossingTo32){
     const renumbered = await migrateShortLocationCodesV32();
-    if(renumbered) showToast(`Location codes corrected to 3 characters for clean barcoding — ${renumbered} item number(s) were regenerated (old numbers kept in History for audit).`, 'info');
+    if(renumbered) showToast(`Location codes corrected to 3 characters for clean barcoding — ${renumbered} Asset Number(s) were regenerated (old numbers kept in History for audit).`, 'info');
   }
   document.getElementById('sidebar-version').textContent = 'v'+state.meta.version;
   document.getElementById('footer-version').textContent = 'v'+state.meta.version;
@@ -964,9 +995,11 @@ function buildNavHtml(){
     }
   });
   html += `<div class="pt-2"></div>`;
+  html += navItemHtml('information','Information', iconInfo());
   html += navItemHtml('settings','Settings', iconSettings());
   return html;
 }
+function iconInfo(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>`; }
 function iconHome(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>`; }
 function iconHistory(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M12 8v4l3 3M21 12a9 9 0 11-9-9"/></svg>`; }
 function iconSettings(){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.34 1.87l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.7 1.7 0 00-1.87-.34 1.7 1.7 0 00-1 1.55V21a2 2 0 01-4 0v-.09A1.7 1.7 0 009 19.4a1.7 1.7 0 00-1.87.34l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.7 1.7 0 004.6 15a1.7 1.7 0 00-1.55-1H3a2 2 0 010-4h.09A1.7 1.7 0 004.6 9a1.7 1.7 0 00-.34-1.87l-.06-.06a2 2 0 112.83-2.83l.06.06A1.7 1.7 0 009 4.6a1.7 1.7 0 001-1.55V3a2 2 0 014 0v.09a1.7 1.7 0 001 1.55 1.7 1.7 0 001.87-.34l.06-.06a2 2 0 112.83 2.83l-.06.06A1.7 1.7 0 0019.4 9a1.7 1.7 0 001.55 1H21a2 2 0 010 4h-.09a1.7 1.7 0 00-1.51 1z"/></svg>`; }
@@ -1011,6 +1044,12 @@ function navigateTo(view, loc){
   if(view==='location'){ state.view='location'; state.activeLocation=loc; }
   state.editing = null; state.splitMode=false;
   render();
+  // The history/changelog archive is only fetched from Drive the first time the
+  // History page or Settings (which shows the changelog) is opened this session —
+  // keeps every other page load's sync traffic to the lightweight active file only.
+  if((view==='history' || view==='settings') && state.cloud.connected && !state.cloud.historyLoaded){
+    ensureHistoryCloudLoaded();
+  }
 }
 function openMobileMenu(){ document.getElementById('mobile-menu').classList.remove('hidden'); document.getElementById('mobile-menu').classList.add('flex'); }
 function closeMobileMenu(){ document.getElementById('mobile-menu').classList.add('hidden'); document.getElementById('mobile-menu').classList.remove('flex'); }
@@ -1038,6 +1077,7 @@ function render(){
   else if(state.view==='history') root.innerHTML = renderHistoryView();
   else if(state.view==='print') root.innerHTML = renderPrintView();
   else if(state.view==='settings') root.innerHTML = renderSettingsView();
+  else if(state.view==='information') root.innerHTML = renderInformationView();
   bindViewEvents();
   updateA4Preview();
   renderCloudSidebar();
@@ -1050,6 +1090,7 @@ function viewTitle(){
   if(state.view==='history') return 'History';
   if(state.view==='print') return 'Print & Export';
   if(state.view==='settings') return 'Settings';
+  if(state.view==='information') return 'Information';
   return '';
 }
 
@@ -1099,7 +1140,7 @@ function renderDashboard(){
   const statCard = (label, value, sub, clickKey)=>{
     const isActive = clickKey==='asset-groups' && dashRosterOpen && !dashFilters.condition && !dashFilters.assetNumber && !dashFilters.assetName && !dashFilters.location && !dashFilters.category;
     return `
-    <div ${clickKey?`data-stat-click="${clickKey}"`:''} class="rounded-2xl border p-4 transition-colors ${clickKey?'cursor-pointer':''} ${isActive ? 'bg-[#EAE5D2] border-[#C9C3AC]' : `bg-white border-[#E7E2D3] ${clickKey?'hover:bg-[#F1EEE3]':''}`}">
+    <div ${clickKey?`data-stat-click="${clickKey}"`:''} class="rounded-2xl border p-4 transition-colors ${clickKey?'cursor-pointer':''} ${isActive ? 'stat-card-active' : `bg-white border-[#E7E2D3] ${clickKey?'hover:bg-[#F1EEE3]':''}`}">
       <p class="text-[10.5px] uppercase tracking-wider font-semibold text-[#a89f85]">${label}</p>
       <p class="font-display text-2xl font-semibold mt-0.5">${value}</p>
       ${sub?`<p class="text-[11px] text-[#8a8471] mt-0.5">${sub}</p>`:''}
@@ -1163,7 +1204,7 @@ function renderDashboard(){
         <div id="dash-summary-card" class="bg-white rounded-2xl border border-[#E7E2D3] p-4">
           <div class="flex items-start justify-between mb-3 gap-2 flex-wrap">
             <div class="min-w-0 flex-1">
-              <p class="font-display font-semibold text-xs sm:text-sm leading-snug">${dashPeriod==='year'?periodLabel('year'):periodLabel('month')} Summary of Assets and Inventory</p>
+              <p class="font-display font-semibold text-[11px] sm:text-xs leading-snug">${dashPeriod==='year'?periodLabel('year'):periodLabel('month')} Summary of Assets and Inventory</p>
               <p class="text-[10.5px] text-[#a89f85] truncate">${escapeHtml(state.settings.companyName)}</p>
             </div>
             <div class="flex items-center gap-1.5 shrink-0 no-capture">
@@ -1283,7 +1324,7 @@ function renderRosterTable(rows, groups){
           <th class="py-1.5 pr-3 font-semibold">Location</th>
           <th class="py-1.5 pr-3 font-semibold">Category</th>
           <th class="py-1.5 pr-3 font-semibold">Total</th>
-          <th class="py-1.5 pr-3 font-semibold">QTY</th>
+          <th class="py-1.5 pr-3 font-semibold">Qty</th>
           <th class="py-1.5 pr-3 font-semibold">Condition</th>
           <th class="py-1.5 pr-3 font-semibold">Price</th>
           <th class="py-1.5 pr-3 font-semibold">Update Date</th>
@@ -1479,7 +1520,8 @@ function renderStandardForm(e){
       </div>
       <div class="sm:col-span-2">
         <label class="lbl">Asset Name</label>
-        <input id="f-name" type="text" class="inp" value="${escapeHtml(e.name)}" placeholder="e.g. Office Chairs" />
+        <input id="f-name" type="text" class="inp" list="asset-name-datalist" value="${escapeHtml(e.name)}" placeholder="e.g. Office Chairs" />
+        <datalist id="asset-name-datalist">${[...new Set(state.assets.map(a=>a.name).filter(Boolean))].sort().map(n=>`<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
       </div>
       <div>
         <label class="lbl">Category</label>
@@ -1986,7 +2028,7 @@ function renderHistoryView(){
           <select id="hist-sort" class="inp w-40">
             <option value="date_desc" ${historySort==='date_desc'?'selected':''}>Newest First</option>
             <option value="date_asc" ${historySort==='date_asc'?'selected':''}>Oldest First</option>
-            <option value="name" ${historySort==='name'?'selected':''}>Item Name</option>
+            <option value="name" ${historySort==='name'?'selected':''}>Asset Name</option>
             <option value="location" ${historySort==='location'?'selected':''}>Location</option>
             <option value="category" ${historySort==='category'?'selected':''}>Category</option>
           </select>
@@ -2105,6 +2147,49 @@ function adminLockNotice(title){
     </section>`;
 }
 
+/* ---------------------------------------------------------------------------
+   17b. INFORMATION VIEW — static Asset Condition Definitions reference
+--------------------------------------------------------------------------- */
+const CONDITION_DEFINITIONS = [
+  { key:'Usable',    def:'Ready and fit for its intended use or purpose.' },
+  { key:'Unusable',  def:'Incapable of being used due to defects, flaws, or lack of parts.' },
+  { key:'Damaged',   def:'Harmed, broken, or impaired, but not entirely destroyed. Still can be used or manageable.' },
+  { key:'In Repair', def:'Currently undergoing maintenance or fixing to be restored to use.' },
+  { key:'Missing',   def:'Absent from its expected location and cannot be found.' },
+  { key:'Discarded', def:'Thrown away or rejected as no longer useful or wanted.' },
+];
+function renderInformationView(){
+  const rows = CONDITION_DEFINITIONS.map(d=>{
+    const c = CONDITIONS.find(x=>x.key===d.key);
+    const dot = c ? c.dot : '#a89f85';
+    const cls = c ? c.cls : 'bg-[#F1EEE3] text-[#6b6552]';
+    return `<tr class="border-b border-[#F1EEE3] last:border-0">
+      <td class="py-3 pl-4 pr-4 align-top whitespace-nowrap">
+        <span class="inline-flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-full text-xs font-medium ${cls}">
+          <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${dot}"></span>${escapeHtml(d.key)}
+        </span>
+      </td>
+      <td class="py-3 pr-4 text-sm text-[#4b4736]">${escapeHtml(d.def)}</td>
+    </tr>`;
+  }).join('');
+  return `
+  <div class="space-y-4 max-w-3xl">
+    <h1 class="font-display text-2xl font-semibold">Assets Condition Definition</h1>
+    <p class="text-xs text-[#8a8471]">A quick reference for how each condition status is defined across the app — matches the colors used on badges, charts, and the Dashboard breakdown.</p>
+    <div class="bg-white rounded-2xl border border-[#E7E2D3] overflow-hidden">
+      <table class="w-full text-left border-collapse">
+        <thead>
+          <tr class="text-[10.5px] uppercase tracking-wide text-[#a89f85] border-b border-[#E7E2D3] bg-[#FAF8F1]">
+            <th class="py-2.5 pl-4 pr-4 font-semibold">Status</th>
+            <th class="py-2.5 pr-4 font-semibold">Definition</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
 function renderSettingsView(){
   const s = state.settings;
   const admin = isAdminSession();
@@ -2112,7 +2197,7 @@ function renderSettingsView(){
     <div class="border-b border-[#F1EEE3] last:border-0 py-3">
       <div class="flex items-center gap-2">
         <span class="font-mono text-xs font-semibold theme-text">v${c.version}</span>
-        <span class="text-[10px] px-2 py-0.5 rounded-full ${c.type==='major'?'bg-[#FEE2E2] text-[#991B1B]':'bg-[#DCFCE7] text-[#166534]'}">${c.type}</span>
+        <span class="text-[10px] px-2 py-0.5 rounded-full ${c.type==='major'?'badge-discarded':'badge-usable'}">${c.type}</span>
         <span class="text-[10px] text-[#a89f85] ml-auto">${fmtDate(c.date)}</span>
       </div>
       <p class="text-xs mt-1">${escapeHtml(c.summary)}</p>
@@ -2136,7 +2221,7 @@ function renderSettingsView(){
 
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
       <p class="font-display font-semibold">Asset Categories</p>
-      <p class="text-xs text-[#8a8471]">New categories appear instantly in the New Item form's Category dropdown. Asset codes are auto-derived from the first three letters of the category name (e.g. Glassware → GLA, producing codes like LBY-GLA-000001). Renaming regenerates Item Numbers for records using it (old numbers stay in History for audit); a category can only be deleted once no current records use it.</p>
+      <p class="text-xs text-[#8a8471]">New categories appear instantly in the New Item form's Category dropdown. Asset codes are auto-derived from the first three letters of the category name (e.g. Glassware → GLA, producing codes like LBY-GLA-000001). Renaming regenerates Asset Numbers for records using it (old numbers stay in History for audit); a category can only be deleted once no current records use it.</p>
       <div class="flex flex-wrap gap-2">
         ${CATEGORIES.map(c=>`<span class="inline-flex items-center gap-1 text-xs font-mono pl-2.5 pr-1.5 py-1 rounded-full theme-tint theme-text font-semibold">
           ${escapeHtml(c.name)} · ${c.code}
@@ -2147,7 +2232,8 @@ function renderSettingsView(){
       <div class="flex flex-wrap gap-2 items-end">
         <div class="flex-1 min-w-[160px]">
           <label class="lbl">New Category Name</label>
-          <input id="s-cat-name" type="text" class="inp" placeholder="e.g. Glassware"/>
+          <input id="s-cat-name" type="text" class="inp" list="existing-category-datalist" placeholder="e.g. Glassware"/>
+          <datalist id="existing-category-datalist">${CATEGORIES.map(c=>`<option value="${escapeHtml(c.name)}"></option>`).join('')}</datalist>
         </div>
         <div class="w-24">
           <label class="lbl">Code</label>
@@ -2159,7 +2245,7 @@ function renderSettingsView(){
 
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
       <p class="font-display font-semibold">Storage Locations</p>
-      <p class="text-xs text-[#8a8471]">Rename a location when the physical space is renamed (e.g. Store Room 1 → Chemical Store) — every current record instantly gets a new Item Number reflecting the change, while the OLD number stays in History for audit and quantities are untouched. A location can only be deleted once no current records use it.</p>
+      <p class="text-xs text-[#8a8471]">Rename a location when the physical space is renamed (e.g. Store Room 1 → Chemical Store) — every current record instantly gets a new Asset Number reflecting the change, while the OLD number stays in History for audit and quantities are untouched. A location can only be deleted once no current records use it.</p>
       <div class="flex flex-wrap gap-2">
         ${LOCATIONS.map(l=>`<span class="inline-flex items-center gap-1 text-xs font-mono pl-2.5 pr-1.5 py-1 rounded-full theme-tint theme-text font-semibold">
           ${escapeHtml(l.name)} · ${l.code}
@@ -2170,7 +2256,8 @@ function renderSettingsView(){
       <div class="flex flex-wrap gap-2 items-end">
         <div class="flex-1 min-w-[160px]">
           <label class="lbl">New Location Name</label>
-          <input id="s-loc-name" type="text" class="inp" placeholder="e.g. Upstairs Lounge"/>
+          <input id="s-loc-name" type="text" class="inp" list="existing-location-datalist" placeholder="e.g. Upstairs Lounge"/>
+          <datalist id="existing-location-datalist">${LOCATIONS.map(l=>`<option value="${escapeHtml(l.name)}"></option>`).join('')}</datalist>
         </div>
         <div class="w-40">
           <label class="lbl">Zone</label>
@@ -2231,7 +2318,7 @@ function renderSettingsView(){
           <p class="text-xs text-[#8a8471]">Switch the app's overall background and text between light and dark.</p>
         </div>
         <button id="s-dark-toggle" role="switch" aria-checked="${s.darkMode?'true':'false'}" class="relative w-12 h-7 rounded-full transition shrink-0 ${s.darkMode?'theme-bg':'bg-[#E2DFD3]'}">
-          <span class="absolute top-1 ${s.darkMode?'left-6':'left-1'} w-5 h-5 rounded-full bg-white shadow transition-all"></span>
+          <span class="absolute top-1 ${s.darkMode?'left-6':'left-1'} w-5 h-5 rounded-full bg-white toggle-knob shadow transition-all"></span>
         </button>
       </div>
     </section>
@@ -2244,7 +2331,7 @@ function renderSettingsView(){
           <span class="cloud-dot ${state.cloud.connected?(state.cloud.syncing?'busy':'on'):'off'}" id="cloud-status-dot"></span><span id="cloud-status-text">${state.cloud.connected?(state.cloud.syncing?'Syncing…':'Synced'):'Offline'}</span>
         </span>
       </div>
-      <p class="text-xs text-[#8a8471]">Connect a shared Google Drive folder so every authorized device reads and writes the exact same live database file (<code class="font-mono">gaia_lake_inventory.json</code>). Generate a Client ID and API Key from your own <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="theme-text underline">Google Cloud Console</a>, and copy the folder ID from your Drive shared-folder link.</p>
+      <p class="text-xs text-[#8a8471]">Connect a shared Google Drive folder so every authorized device reads and writes the same live database. Active assets, Settings, and current state stay in a lightweight <code class="font-mono">gaia_lake_inventory.json</code> that syncs on every edit; the full History log and version changelog live separately in <code class="font-mono">gaia_Asset_history_archive.json</code>, which only loads from Drive the first time you open History or view this changelog below. Generate a Client ID and API Key from your own <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="theme-text underline">Google Cloud Console</a>, and copy the folder ID from your Drive shared-folder link.</p>
       <div class="grid sm:grid-cols-2 gap-4">
         <div><label class="lbl">Google Client ID</label><input id="s-cloud-client-id" type="text" class="inp font-mono" placeholder="xxxxxxxx.apps.googleusercontent.com" value="${escapeHtml(state.cloud.clientId||'')}"/></div>
         <div><label class="lbl">Google API Key</label><input id="s-cloud-api-key" type="text" class="inp font-mono" placeholder="AIza..." value="${escapeHtml(state.cloud.apiKey||'')}"/></div>
@@ -2272,7 +2359,7 @@ function renderSettingsView(){
 
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-3">
       <p class="font-display font-semibold">Bulk Import &amp; Export — Spreadsheet</p>
-      <p class="text-xs text-[#8a8471]">Load assets from an existing Excel/CSV sheet, or export your current inventory to Excel/CSV to share with anyone offline. Column names don't need to match exactly — common variants (e.g. "Item Name", "Asset Image", "Sub-category") are recognized automatically on import. Rows are <span class="font-medium">added</span> to your existing inventory, never replaced, and every item gets a fresh Auto Item Number based on its location and category — any Asset Number already in the sheet is ignored. New categories or locations found in the sheet are created automatically; you'll see a summary to confirm before anything is written.</p>
+      <p class="text-xs text-[#8a8471]">Load assets from an existing Excel/CSV sheet, or export your current inventory to Excel/CSV to share with anyone offline. Column names don't need to match exactly — common variants (e.g. "Item Name", "Asset Image", "Sub-category") are recognized automatically on import. Rows are <span class="font-medium">added</span> to your existing inventory, never replaced, and every item gets a fresh Auto Asset Number based on its location and category — any Asset Number already in the sheet is ignored. New categories or locations found in the sheet are created automatically; you'll see a summary to confirm before anything is written.</p>
       <div class="flex flex-wrap gap-3">
         <label class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] cursor-pointer w-fit">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
@@ -2332,7 +2419,7 @@ function renderPrintView(){
         <div>
           <label class="lbl">Sort By</label>
           <select id="p-sort" class="inp">
-            <option value="name" ${state.printSelection.sortBy==='name'?'selected':''}>Item Name</option>
+            <option value="name" ${state.printSelection.sortBy==='name'?'selected':''}>Asset Name</option>
             <option value="assetNumber" ${state.printSelection.sortBy==='assetNumber'?'selected':''}>Asset Number</option>
             <option value="category" ${state.printSelection.sortBy==='category'?'selected':''}>Category</option>
             <option value="location" ${state.printSelection.sortBy==='location'?'selected':''}>Location</option>
@@ -2582,7 +2669,7 @@ async function importAllData(e){
    Parses a .xlsx/.xls/.csv file entirely in the browser (SheetJS), maps
    flexible/renamed column headers onto the asset schema, auto-creates any
    category or location it hasn't seen before, and generates a fresh Auto
-   Item Number for every row via the existing nextAssetNumber() logic.
+   Asset Number for every row via the existing nextAssetNumber() logic.
    Rows are ADDED to the existing inventory — nothing is overwritten.
 --------------------------------------------------------------------------- */
 let pendingExcelImport = null;
@@ -2773,7 +2860,7 @@ async function renameLocationPrompt(oldName){
   }
   const affected = state.assets.filter(a=>a.location===oldName);
   const msg = affected.length
-    ? `${affected.length} record(s) currently use this location. Their Item Numbers will be regenerated to reflect the new name — the OLD Item Number stays in History for audit, and quantities are unaffected.`
+    ? `${affected.length} record(s) currently use this location. Their Asset Numbers will be regenerated to reflect the new name — the OLD Asset Number stays in History for audit, and quantities are unaffected.`
     : `No current records use this location — the rename applies immediately.`;
   const ok = await askConfirm(`Rename "${oldName}" to "${input}"?`, msg);
   if(!ok) return;
@@ -2793,7 +2880,7 @@ async function renameLocationPrompt(oldName){
     await logHistory('renumbered', Object.assign({}, row, { assetNumber: oldNum, notes: (row.notes?row.notes+' — ':'')+`Renumbered from ${oldNum} (location renamed "${oldName}" \u2192 "${input}")` }));
   }
   lastBulkUndo = { label:`Rename location "${oldName}" \u2192 "${input}"`, ops, renameRevert:{ type:'location', oldName, newName:input, oldCode, newCode:loc.code } };
-  showToast(`Renamed to "${input}". ${affected.length} item number(s) regenerated.`, 'info');
+  showToast(`Renamed to "${input}". ${affected.length} Asset Number(s) regenerated.`, 'info');
   render();
 }
 async function deleteLocationPrompt(name){
@@ -2816,7 +2903,7 @@ async function renameCategoryPrompt(oldName){
   }
   const affected = state.assets.filter(a=>a.category===oldName);
   const msg = affected.length
-    ? `${affected.length} record(s) currently use this category. Their Item Numbers will be regenerated to reflect the new name — the OLD Item Number stays in History for audit, and quantities are unaffected.`
+    ? `${affected.length} record(s) currently use this category. Their Asset Numbers will be regenerated to reflect the new name — the OLD Asset Number stays in History for audit, and quantities are unaffected.`
     : `No current records use this category — the rename applies immediately.`;
   const ok = await askConfirm(`Rename "${oldName}" to "${input}"?`, msg);
   if(!ok) return;
@@ -2836,7 +2923,7 @@ async function renameCategoryPrompt(oldName){
     await logHistory('renumbered', Object.assign({}, row, { assetNumber: oldNum, notes: (row.notes?row.notes+' — ':'')+`Renumbered from ${oldNum} (category renamed "${oldName}" \u2192 "${input}")` }));
   }
   lastBulkUndo = { label:`Rename category "${oldName}" \u2192 "${input}"`, ops, renameRevert:{ type:'category', oldName, newName:input, oldCode, newCode:cat.code } };
-  showToast(`Renamed to "${input}". ${affected.length} item number(s) regenerated.`, 'info');
+  showToast(`Renamed to "${input}". ${affected.length} Asset Number(s) regenerated.`, 'info');
   render();
 }
 async function deleteCategoryPrompt(name){
@@ -2944,7 +3031,7 @@ async function deleteAllRecords(){
 }
 function assetExportRows(){
   return state.assets.map(a=>({
-    'Asset Number': a.assetNumber, 'Item Name': a.name, 'Category': a.category, 'Sub-category': a.subCategory||'',
+    'Asset Number': a.assetNumber, 'Asset Name': a.name, 'Category': a.category, 'Sub-category': a.subCategory||'',
     'Location': a.location, 'Quantity': a.qty, 'Condition': a.condition,
     'Purchase Price': a.purchasePrice, 'Purchase Date': a.purchaseDate, 'Vendor': a.vendor,
     'Notes': a.notes, 'Asset Image': a.imageSrc||'', 'Remarks': a.remarks||''
@@ -2982,11 +3069,13 @@ function exportAssetsToCsv(){
    engine, version tracking, or image compression logic above.
 --------------------------------------------------------------------------- */
 const CLOUD_FILE_NAME = 'gaia_lake_inventory.json';
+const CLOUD_HISTORY_FILE_NAME = 'gaia_Asset_history_archive.json';
 const CLOUD_SCOPES = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email';
 const CLOUD_POLL_MS = 20000;
 
 let gisTokenClient = null;
 let cloudPushTimer = null;
+let historyPushTimer = null;
 let cloudPollTimer = null;
 let cloudRefreshTimer = null;
 
@@ -3003,12 +3092,13 @@ async function loadCloudConfig(){
     state.cloud.apiKey = c.apiKey || DEFAULT_CLOUD_CONFIG.apiKey;
     state.cloud.folderId = c.folderId || DEFAULT_CLOUD_CONFIG.folderId;
     state.cloud.fileId = c.fileId || null;
+    state.cloud.historyFileId = c.historyFileId || null;
   }
 }
 async function saveCloudConfigToDB(){
   await idbPut('settings', {
     key:'cloud', clientId: state.cloud.clientId, apiKey: state.cloud.apiKey,
-    folderId: state.cloud.folderId, fileId: state.cloud.fileId
+    folderId: state.cloud.folderId, fileId: state.cloud.fileId, historyFileId: state.cloud.historyFileId
   });
 }
 
@@ -3118,7 +3208,10 @@ function scheduleTokenRefresh(){
 function cloudSignOut(){
   try{ if(state.cloud.accessToken && ensureGisReady()) google.accounts.oauth2.revoke(state.cloud.accessToken, ()=>{}); }catch(e){}
   state.cloud.connected = false; state.cloud.accessToken = null; state.cloud.userEmail = null;
+  // Both gates must be re-earned by a fresh pull next sign-in — never carry a "safe to push" state across sessions.
+  state.cloud.syncReady = false; state.cloud.historyLoaded = false; state.cloud.historySyncReady = false;
   clearTimeout(cloudRefreshTimer); clearInterval(cloudPollTimer);
+  clearTimeout(cloudPushTimer); clearTimeout(historyPushTimer);
   setCloudStatus('off','Offline');
   showToast('Signed out of Google Drive.','info');
   render();
@@ -3136,14 +3229,14 @@ async function driveFetchJson(url, opts){
   const ct = res.headers.get('content-type')||'';
   return ct.includes('application/json') ? res.json() : res.text();
 }
-async function findMasterFile(){
-  const q = encodeURIComponent(`name='${CLOUD_FILE_NAME}' and '${state.cloud.folderId}' in parents and trashed=false`);
+async function findMasterFileByName(name){
+  const q = encodeURIComponent(`name='${name}' and '${state.cloud.folderId}' in parents and trashed=false`);
   const data = await driveFetchJson(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)&spaces=drive`);
   return (data.files && data.files[0]) || null;
 }
-async function createMasterFile(payload){
+async function createNamedFile(name, payload){
   const boundary = 'gaiaLakeBoundary' + Date.now();
-  const metadata = { name: CLOUD_FILE_NAME, parents:[state.cloud.folderId], mimeType:'application/json' };
+  const metadata = { name, parents:[state.cloud.folderId], mimeType:'application/json' };
   const body =
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
     `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n` +
@@ -3164,89 +3257,174 @@ async function getMasterFileMeta(fileId){
   return driveFetchJson(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=modifiedTime`);
 }
 
-/* ---- Payload build / apply ------------------------------------------------ */
-async function buildCloudPayload(){
+/* ---- Payload build / apply ------------------------------------------------
+   Two separate Drive payloads keep the frequently-synced file small:
+   - Active file (gaia_lake_inventory.json): assets, Settings, categories,
+     locations, current version number, counters. Read/written on every
+     normal sync (login, auto-push, 20s poll).
+   - History archive (gaia_Asset_history_archive.json): the action-log
+     history table and the full version changelog. Only touched when the
+     History page or Settings (which displays the changelog) is opened.
+--------------------------------------------------------------------------- */
+async function buildActivePayload(){
   const counters = await idbGet('meta','counters');
   return {
     savedAt: nowISO(),
     assets: state.assets,
-    history: state.history,
     settings: state.settings,
     categories: CATEGORIES,
     locations: LOCATIONS,
-    meta: { version: state.meta.version, changelog: state.meta.changelog },
+    meta: { version: state.meta.version },
     counters: counters ? counters.values : {}
   };
 }
-async function applyRemoteData(remote){
+function buildHistoryPayload(){
+  return {
+    savedAt: nowISO(),
+    history: state.history,
+    changelog: state.meta.changelog
+  };
+}
+async function applyRemoteActiveData(remote){
   if(!remote || !Array.isArray(remote.assets)) return;
   state.cloud.applyingRemote = true;
   try{
-    await idbClear('assets'); await idbClear('history'); await idbClear('settings'); await idbClear('meta');
+    await idbClear('assets');
     for(const a of remote.assets) await idbPut('assets', a);
-    for(const h of (remote.history||[])) await idbPut('history', h);
     if(remote.settings) await idbPut('settings', Object.assign({key:'main'}, remote.settings));
     const cats = Array.isArray(remote.categories) && remote.categories.length ? remote.categories : DEFAULT_CATEGORIES.map(c=>Object.assign({},c));
     await idbPut('meta', { key:'categories', list: cats });
     const locs = Array.isArray(remote.locations) && remote.locations.length ? remote.locations : DEFAULT_LOCATIONS.map(l=>Object.assign({},l));
     await idbPut('meta', { key:'locations', list: locs });
-    const metaVersion = remote.meta && remote.meta.version ? remote.meta.version : state.meta.version;
-    const metaChangelog = remote.meta && remote.meta.changelog ? remote.meta.changelog : state.meta.changelog;
-    await idbPut('meta', { key:'version', version: metaVersion, changelog: metaChangelog });
+    // The changelog array lives in the history archive, not here — keep whatever
+    // is already known locally and only take the version number from the active file.
+    const remoteVersion = remote.meta && remote.meta.version ? remote.meta.version : state.meta.version;
+    await idbPut('meta', { key:'version', version: remoteVersion, changelog: state.meta.changelog });
     await idbPut('meta', { key:'counters', values: remote.counters || {} });
     await idbPut('settings', {
       key:'cloud', clientId: state.cloud.clientId, apiKey: state.cloud.apiKey,
-      folderId: state.cloud.folderId, fileId: state.cloud.fileId
+      folderId: state.cloud.folderId, fileId: state.cloud.fileId, historyFileId: state.cloud.historyFileId
     });
     await loadAllData();
+    state.cloud.dirty = false;
+    render();
+  } finally {
+    state.cloud.applyingRemote = false;
+  }
+}
+/* History/changelog entries are an append-only log rather than a single mutable
+   record, so remote and local copies are merged (union) instead of overwritten —
+   this avoids one device's archive load discarding entries only the other has seen yet. */
+function mergeHistoryEntries(localArr, remoteArr){
+  const map = new Map();
+  (localArr||[]).forEach(x=> x && x.id && map.set(x.id, x));
+  (remoteArr||[]).forEach(x=> x && x.id && map.set(x.id, x));
+  return Array.from(map.values()).sort((a,b)=> new Date(b.date)-new Date(a.date));
+}
+function cmpVersionStr(a,b){
+  const pa = String(a||'0').split('.').map(Number), pb = String(b||'0').split('.').map(Number);
+  for(let i=0;i<Math.max(pa.length,pb.length);i++){
+    const d = (pa[i]||0)-(pb[i]||0);
+    if(d) return d;
+  }
+  return 0;
+}
+function mergeChangelogEntries(localArr, remoteArr){
+  const map = new Map();
+  (localArr||[]).forEach(x=> x && x.version && map.set(x.version, x));
+  (remoteArr||[]).forEach(x=> x && x.version && map.set(x.version, x));
+  return Array.from(map.values()).sort((a,b)=> cmpVersionStr(b.version, a.version));
+}
+async function applyRemoteHistoryData(remote){
+  if(!remote) return;
+  state.cloud.applyingRemote = true;
+  try{
+    const mergedHistory = mergeHistoryEntries(state.history, remote.history);
+    const mergedChangelog = mergeChangelogEntries(state.meta.changelog, remote.changelog);
+    await idbClear('history');
+    for(const h of mergedHistory) await idbPut('history', h);
+    await idbPut('meta', { key:'version', version: state.meta.version, changelog: mergedChangelog });
+    await loadAllData();
+    state.cloud.historyDirty = false;
     render();
   } finally {
     state.cloud.applyingRemote = false;
   }
 }
 
-/* ---- Connect / push / poll ------------------------------------------------ */
+/* ---- Connect / push / poll -------------------------------------------------
+   Strict pull-then-push priority on login: the active file is always pulled
+   FROM Drive and applied to device memory FIRST. state.cloud.syncReady only
+   flips true once that initial pull (or first-time create, when no remote
+   file exists yet) has fully landed — pushToCloud()/scheduleCloudPush() both
+   refuse to send anything before that, so no local/offline data can race the
+   login pull and clobber the Drive file. Any local writes that happened
+   before syncReady just get queued (dirty) and flushed once it's safe.
+--------------------------------------------------------------------------- */
 async function cloudInitialConnect(){
+  state.cloud.syncReady = false;
   updateCloudBanner(); renderCloudSidebar();
   try{
     setCloudStatus('busy','Connecting…');
-    const existing = await findMasterFile();
+    const existing = await findMasterFileByName(CLOUD_FILE_NAME);
     if(existing){
       state.cloud.fileId = existing.id;
       await saveCloudConfigToDB();
       const remote = await downloadMasterFile(existing.id);
-      await applyRemoteData(remote);
+      await applyRemoteActiveData(remote);
       state.cloud.lastRemoteModified = existing.modifiedTime;
       showToast('Loaded the live database from Google Drive.');
     } else {
-      const payload = await buildCloudPayload();
-      const created = await createMasterFile(payload);
+      const payload = await buildActivePayload();
+      const created = await createNamedFile(CLOUD_FILE_NAME, payload);
       state.cloud.fileId = created.id;
       state.cloud.lastRemoteModified = created.modifiedTime;
       await saveCloudConfigToDB();
       showToast(`Created ${CLOUD_FILE_NAME} in the shared folder.`);
     }
     state.cloud.lastSync = nowISO();
+    state.cloud.syncReady = true;
     setCloudStatus('on','Synced');
     clearInterval(cloudPollTimer);
     cloudPollTimer = setInterval(pollCloud, CLOUD_POLL_MS);
+    // Flush anything queued while the pull was in flight — safe now that
+    // device memory has already been overwritten from Drive above.
+    if(state.cloud.dirty) await pushToCloud();
   }catch(err){
     setCloudStatus('off','Error');
     showToast('Google Drive connection failed: '+err.message,'error');
   }
   render();
 }
-function scheduleCloudPush(){
+function scheduleCloudPush(storeName, value){
   if(typeof state === 'undefined' || !state.cloud) return;
-  if(!state.cloud.connected || !state.cloud.fileId || state.cloud.applyingRemote){ if(state.cloud) state.cloud.dirty = true; return; }
+  if(storeName === 'history'){ scheduleHistoryCloudPush(); return; }
+  if(storeName === 'meta' && value && value.key === 'version'){
+    // The version NUMBER is active-file state; the changelog array riding
+    // along in the same record belongs to the history archive.
+    scheduleActiveCloudPush();
+    scheduleHistoryCloudPush();
+    return;
+  }
+  scheduleActiveCloudPush();
+}
+function scheduleActiveCloudPush(){
+  if(!state.cloud.connected || !state.cloud.fileId || state.cloud.applyingRemote || !state.cloud.syncReady){ state.cloud.dirty = true; return; }
   clearTimeout(cloudPushTimer);
   cloudPushTimer = setTimeout(()=>{ pushToCloud(); }, 500);
 }
+function scheduleHistoryCloudPush(){
+  if(!state.cloud.connected || !state.cloud.historyLoaded || !state.cloud.historyFileId || state.cloud.applyingRemote || !state.cloud.historySyncReady){
+    state.cloud.historyDirty = true; return;
+  }
+  clearTimeout(historyPushTimer);
+  historyPushTimer = setTimeout(()=>{ pushHistoryToCloud(); }, 500);
+}
 async function pushToCloud(){
-  if(!state.cloud.connected || !state.cloud.fileId || state.cloud.applyingRemote) return;
+  if(!state.cloud.connected || !state.cloud.fileId || state.cloud.applyingRemote || !state.cloud.syncReady) return;
   try{
     state.cloud.syncing = true; setCloudStatus('busy','Syncing…'); renderCloudSidebar();
-    const payload = await buildCloudPayload();
+    const payload = await buildActivePayload();
     const updated = await updateMasterFile(state.cloud.fileId, payload);
     state.cloud.lastRemoteModified = updated.modifiedTime;
     state.cloud.lastSync = nowISO();
@@ -3259,13 +3437,63 @@ async function pushToCloud(){
     state.cloud.syncing = false; renderCloudSidebar();
   }
 }
+/* ---- History archive: lazy connect, only when History/Settings is opened - */
+async function ensureHistoryCloudLoaded(){
+  if(!state.cloud.connected || state.cloud.historyLoaded || state.cloud.applyingRemote) return;
+  try{
+    state.cloud.historySyncing = true; renderCloudSidebar();
+    let fileMeta = null;
+    if(state.cloud.historyFileId){
+      try{ fileMeta = await getMasterFileMeta(state.cloud.historyFileId); }
+      catch(e){ state.cloud.historyFileId = null; } // cached id no longer resolves — fall back to a name search below
+    }
+    if(!state.cloud.historyFileId){
+      const existing = await findMasterFileByName(CLOUD_HISTORY_FILE_NAME);
+      if(existing){ state.cloud.historyFileId = existing.id; fileMeta = existing; }
+    }
+    if(state.cloud.historyFileId){
+      const remote = await downloadMasterFile(state.cloud.historyFileId);
+      await applyRemoteHistoryData(remote);
+      state.cloud.lastHistoryRemoteModified = fileMeta ? fileMeta.modifiedTime : null;
+    } else {
+      const payload = buildHistoryPayload();
+      const created = await createNamedFile(CLOUD_HISTORY_FILE_NAME, payload);
+      state.cloud.historyFileId = created.id;
+      state.cloud.lastHistoryRemoteModified = created.modifiedTime;
+    }
+    await saveCloudConfigToDB();
+    state.cloud.historyLoaded = true;
+    state.cloud.historySyncReady = true;
+    state.cloud.lastHistorySync = nowISO();
+    if(state.cloud.historyDirty) await pushHistoryToCloud();
+  }catch(err){
+    showToast('Could not load the history archive from Google Drive: '+err.message,'error');
+  } finally {
+    state.cloud.historySyncing = false; renderCloudSidebar();
+  }
+}
+async function pushHistoryToCloud(){
+  if(!state.cloud.connected || !state.cloud.historyFileId || state.cloud.applyingRemote || !state.cloud.historySyncReady) return;
+  try{
+    state.cloud.historySyncing = true; renderCloudSidebar();
+    const payload = buildHistoryPayload();
+    const updated = await updateMasterFile(state.cloud.historyFileId, payload);
+    state.cloud.lastHistoryRemoteModified = updated.modifiedTime;
+    state.cloud.lastHistorySync = nowISO();
+    state.cloud.historyDirty = false;
+  }catch(err){
+    showToast('History archive sync failed: '+err.message,'error');
+  } finally {
+    state.cloud.historySyncing = false; renderCloudSidebar();
+  }
+}
 async function pollCloud(){
   if(!state.cloud.connected || !state.cloud.fileId || state.cloud.syncing || state.cloud.applyingRemote) return;
   try{
     const meta = await getMasterFileMeta(state.cloud.fileId);
     if(meta.modifiedTime && meta.modifiedTime !== state.cloud.lastRemoteModified){
       const remote = await downloadMasterFile(state.cloud.fileId);
-      await applyRemoteData(remote);
+      await applyRemoteActiveData(remote);
       state.cloud.lastRemoteModified = meta.modifiedTime;
       state.cloud.lastSync = nowISO();
       showToast('Synced changes from another device.','info');
@@ -3279,6 +3507,7 @@ async function cloudManualSync(){
   if(!state.cloud.connected){ showToast('Sign in to Google Drive first.','error'); return; }
   await pollCloud();
   if(state.cloud.dirty) await pushToCloud();
+  if(state.cloud.historyLoaded && state.cloud.historyDirty) await pushHistoryToCloud();
   showToast('Sync check complete.');
 }
 
@@ -3354,19 +3583,44 @@ function renderPrintRoot(html){
     root.id = 'print-root';
     document.body.appendChild(root);
   }
-  root.innerHTML = `<div class="p-10 bg-white">${html}</div>`;
+  root.innerHTML = `<div class="bg-white">${html}</div>`;
 }
 async function exportSinglePdf(item){
   await exportPdfFromHtml(a4TemplateHtml(item, true), `${item.assetNumber||'asset'}-manifest.pdf`, 'download');
 }
+function summaryCardStandaloneHtml(){
+  const period = periodConditionSummary(dashPeriod);
+  const maxPeriod = Math.max(1, ...Object.values(period.counts));
+  const titleText = `${dashPeriod==='year'?periodLabel('year'):periodLabel('month')} Summary of Assets and Inventory`;
+  const rows = CONDITIONS.map(c=>{
+    const val = period.counts[c.key]||0;
+    const pct = Math.round(val/maxPeriod*100);
+    return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+      <span style="width:96px;flex-shrink:0;font-family:Inter,sans-serif;font-size:14px;font-weight:600;color:#21261f;">${escapeHtml(c.key)}</span>
+      <div style="flex:1;height:12px;border-radius:6px;background:#F1EEE3;overflow:hidden;"><div style="height:100%;border-radius:6px;width:${pct}%;background:${c.dot}"></div></div>
+      <span style="width:30px;flex-shrink:0;text-align:right;font-family:'JetBrains Mono',monospace;font-size:13px;color:#8a8471;">${val}</span>
+    </div>`;
+  }).join('');
+  return `
+  <div id="summary-card-standalone" style="width:640px;background:#fff;border:1px solid #E7E2D3;border-radius:18px;padding:28px 32px;font-family:Inter,sans-serif;box-sizing:border-box;">
+    <p style="font-family:'Fraunces',serif;font-weight:700;font-size:19px;color:#21261f;margin:0 0 8px;line-height:1.4;word-wrap:break-word;">${escapeHtml(titleText)}</p>
+    <p style="font-family:Inter,sans-serif;font-size:13px;color:#a89f85;margin:0 0 26px;">${escapeHtml(state.settings.companyName)}</p>
+    ${period.touched ? rows : `<p style="font-family:Inter,sans-serif;font-size:13px;color:#a89f85;">No activity ${dashPeriod==='year'?'this year':'this month'} yet.</p>`}
+  </div>`;
+}
 async function downloadSummaryCardImage(){
-  const el = document.getElementById('dash-summary-card');
-  if(!el) return;
+  const holder = document.createElement('div');
+  holder.style.position='fixed'; holder.style.left='-9999px'; holder.style.top='0';
+  holder.innerHTML = summaryCardStandaloneHtml();
+  document.body.appendChild(holder);
   try{
-    const canvas = await html2canvas(el, {
-      scale:2, backgroundColor:'#ffffff',
-      ignoreElements: (node)=> !!(node.classList && node.classList.contains('no-capture'))
-    });
+    // Wait for web fonts (Fraunces / Inter / JetBrains Mono) to finish loading
+    // before html2canvas snapshots the off-screen node — capturing too early
+    // was the cause of the title and subtitle rows visually overlapping.
+    if(document.fonts && document.fonts.ready){ try{ await document.fonts.ready; }catch(e){} }
+    await new Promise(r=>setTimeout(r,150));
+    const el = document.getElementById('summary-card-standalone');
+    const canvas = await html2canvas(el, { scale:2, backgroundColor:'#ffffff' });
     const link = document.createElement('a');
     link.download = `assets-inventory-summary-${dashPeriod}-${new Date().toISOString().slice(0,10)}.png`;
     link.href = canvas.toDataURL('image/png');
@@ -3374,6 +3628,8 @@ async function downloadSummaryCardImage(){
     showToast('Summary image downloaded.');
   }catch(err){
     showToast('Could not generate image: '+err.message, 'error');
+  }finally{
+    document.body.removeChild(holder);
   }
 }
 async function exportPdfFromHtml(html, filename, mode){
@@ -3388,18 +3644,21 @@ async function exportPdfFromHtml(html, filename, mode){
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF('p','mm','a4');
     const pageWidth = 210, pageHeight = 297;
-    const imgWidth = pageWidth;
+    const margin = 19.05; // 0.75in safe margin on every side, matching the browser Print output
+    const contentWidth = pageWidth - margin*2;
+    const contentHeight = pageHeight - margin*2;
+    const imgWidth = contentWidth;
     const imgHeight = canvas.height * imgWidth / canvas.width;
-    let heightLeft = imgHeight, position = 0, page = 1;
-    const totalPages = Math.max(1, Math.ceil(imgHeight/pageHeight));
-    pdf.addImage(canvas.toDataURL('image/jpeg',0.92), 'JPEG', 0, position, imgWidth, imgHeight);
-    heightLeft -= pageHeight;
+    let heightLeft = imgHeight, position = margin, page = 1;
+    const totalPages = Math.max(1, Math.ceil(imgHeight/contentHeight));
+    pdf.addImage(canvas.toDataURL('image/jpeg',0.92), 'JPEG', margin, position, imgWidth, imgHeight);
+    heightLeft -= contentHeight;
     while(heightLeft > 0){
-      position = heightLeft - imgHeight;
+      position = margin - (imgHeight - heightLeft);
       pdf.addPage();
       page++;
-      pdf.addImage(canvas.toDataURL('image/jpeg',0.92), 'JPEG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
+      pdf.addImage(canvas.toDataURL('image/jpeg',0.92), 'JPEG', margin, position, imgWidth, imgHeight);
+      heightLeft -= contentHeight;
     }
     if(mode==='view'){
       const blobUrl = pdf.output('bloburl');
