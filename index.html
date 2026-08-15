@@ -13,6 +13,12 @@ or redistribution is strictly prohibited.
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<!-- Mobile browsers (and "Add to Home Screen" installs) cache far more
+     aggressively than desktop, which can leave a phone/tablet showing an
+     older build after an update — force revalidation on every visit. -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>Gaia Lake Bungalow — Assets &amp; Inventory Manager</title>
 <link rel="icon" type="image/png" href="favicon.png" />
 
@@ -168,7 +174,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.2</span>
+      <span id="sidebar-version">v4.6</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -227,7 +233,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.2</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.6</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -623,7 +629,24 @@ function generateAssetImageId(){
   const rand = (window.crypto && crypto.randomUUID) ? crypto.randomUUID().slice(0,8) : Math.random().toString(36).slice(2,10);
   return { id: `IMG-${stamp}-${rand}`, capturedAt: now.toISOString() };
 }
-async function uploadAssetImageToDrive(blob, fileName){
+/* Pulls the Drive File ID back out of our own thumbnail link format
+   (https://drive.google.com/thumbnail?id=FILEID&sz=...) so we know whether
+   this asset already has a Drive-hosted photo to overwrite/delete. */
+function extractDriveFileId(url){
+  if(!url) return null;
+  const m = url.match(/[?&]id=([a-zA-Z0-9_-]+)/) || url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+/* One-to-one upsert: if existingFileId is given, PATCH the existing Drive
+   file's binary content in place (same File ID, same name, same thumbnail
+   link never changes) instead of creating a second file — keeps exactly one
+   image per asset in Drive, no orphaned/"dead" files left behind. */
+async function uploadAssetImageToDrive(blob, fileName, existingFileId){
+  if(existingFileId){
+    return driveFetchJson(`https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=media`, {
+      method:'PATCH', headers:{'Content-Type':'image/webp'}, body: blob
+    });
+  }
   const metadata = { name: fileName, parents:[DRIVE_IMAGES_FOLDER_ID], mimeType:'image/webp' };
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], {type:'application/json'}));
@@ -650,16 +673,35 @@ async function handleMobileImageUpload(event){
     return;
   }
   try{
+    // Method C is a strict one-image-per-asset slot: if THIS feature already
+    // uploaded a photo for this asset (state.editing.imageId is our own
+    // marker), a new capture overwrites that same Drive file in place rather
+    // than creating a second one. If the current image instead came from
+    // Method B's manual URL paste (no imageId), it's someone else's/shared
+    // file — never overwritten, always treated as a fresh Method C upload.
+    const existingFileId = state.editing.imageId ? extractDriveFileId(state.editing.imageSrc) : null;
+    const isOverwrite = !!existingFileId;
+
     if(statusEl) statusEl.textContent = 'Compressing photo…';
     const { blob, dataUrl } = await compressImageForMobileUpload(file, 1000, 0.7);
     // Instant local preview before the Drive round-trip finishes.
     state.editing.imageSrc = dataUrl;
     refreshImagePreview();
 
-    if(statusEl) statusEl.textContent = 'Uploading to Google Drive…';
-    const { id: imageId, capturedAt } = generateAssetImageId();
-    const uploaded = await uploadAssetImageToDrive(blob, `${imageId}.webp`);
-    const thumbLink = `https://drive.google.com/thumbnail?id=${uploaded.id}&sz=w1000`;
+    if(statusEl) statusEl.textContent = isOverwrite ? 'Overwriting existing Drive photo…' : 'Uploading to Google Drive…';
+    let imageId, capturedAt;
+    if(isOverwrite && state.editing.imageId){
+      imageId = state.editing.imageId; capturedAt = new Date().toISOString();
+    } else {
+      ({ id: imageId, capturedAt } = generateAssetImageId());
+    }
+    const uploaded = await uploadAssetImageToDrive(blob, `${imageId}.webp`, existingFileId);
+    const finalFileId = existingFileId || uploaded.id;
+    // Cache-bust: on an overwrite, fileId/filename stay identical, so without
+    // a changing query param the browser (and Google's own thumbnail cache)
+    // just keeps serving the old image bytes for that same URL. &t= forces
+    // both to treat it as a fresh resource every time.
+    const thumbLink = `https://drive.google.com/thumbnail?id=${finalFileId}&sz=w1000&t=${Date.now()}`;
 
     state.editing.imageSrc = thumbLink;
     state.editing.imageId = imageId;
@@ -668,7 +710,7 @@ async function handleMobileImageUpload(event){
     if(urlInput) urlInput.value = thumbLink;
     refreshImagePreview();
     if(clearBtn) clearBtn.classList.remove('hidden');
-    if(statusEl) statusEl.textContent = 'Uploaded ✓ — ' + imageId;
+    if(statusEl) statusEl.textContent = (isOverwrite ? 'Updated ✓ — ' : 'Uploaded ✓ — ') + imageId;
   }catch(err){
     console.error('Mobile image upload failed:', err);
     if(statusEl) statusEl.textContent = 'Upload failed — ' + err.message;
@@ -677,7 +719,30 @@ async function handleMobileImageUpload(event){
     event.target.value = ''; // lets the same file be re-picked later if needed
   }
 }
-function clearMobileImage(){
+async function clearMobileImage(){
+  // Only ever delete from Drive if THIS feature owns the file (imageId is our
+  // own marker) — a Method B-pasted URL with no imageId is someone else's/
+  // shared file and Clear must never delete it, only unlink it locally.
+  const existingFileId = state.editing.imageId ? extractDriveFileId(state.editing.imageSrc) : null;
+  const statusEl = document.getElementById('f-image-mobile-status');
+  if(existingFileId){
+    const ok = confirm('CRITICAL: This will permanently delete the image from Google Drive and remove the link from this asset. This action cannot be undone. Proceed?');
+    if(!ok) return;
+    if(!state.cloud.connected){
+      showToast('Sign in to Google Drive in Settings first.', 'error');
+      return;
+    }
+    try{
+      if(statusEl) statusEl.textContent = 'Deleting from Google Drive…';
+      await driveFetchJson(`https://www.googleapis.com/drive/v3/files/${existingFileId}`, { method:'DELETE' });
+    }catch(err){
+      // Leave the link/state exactly as-is on failure so the user can retry —
+      // silently wiping the link here would orphan a file that's still on Drive.
+      showToast('Could not delete the Drive file: '+err.message, 'error');
+      if(statusEl) statusEl.textContent = 'Delete failed — ' + err.message;
+      return;
+    }
+  }
   state.editing.imageSrc = '';
   state.editing.imageId = null;
   state.editing.imageCapturedAt = null;
@@ -685,7 +750,6 @@ function clearMobileImage(){
   if(urlInput) urlInput.value = '';
   const fileInput = document.getElementById('f-image-mobile');
   if(fileInput) fileInput.value = '';
-  const statusEl = document.getElementById('f-image-mobile-status');
   if(statusEl) statusEl.textContent = state.cloud.connected ? 'Compresses to ≤1000px WebP and uploads straight to your Drive folder — no base64 bloat in the saved record.' : 'Sign in to Google Drive in Settings first — this method uploads directly to your shared Drive folder.';
   const clearBtn = document.getElementById('f-image-mobile-clear');
   if(clearBtn) clearBtn.classList.add('hidden');
@@ -826,6 +890,14 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.6', date: nowISO(), type:'patch', summary:'Fixed a bug where retaking a photo via Method C would successfully replace the image on Google Drive, but the form kept showing the old picture.',
+    detail:'Root cause: when Method C overwrites an existing photo, the File ID and filename intentionally stay identical (that\'s the whole point of v4.5\'s upsert), which meant the thumbnail URL saved on the asset was also byte-for-byte identical after every retake — so the browser (and Google\'s own thumbnail cache) just kept serving the old cached image for that same URL instead of fetching the new one. The saved thumbnail link now includes a changing cache-busting parameter on every upload/overwrite, forcing both the browser and Drive\'s thumbnail cache to treat it as fresh content — the form (and anywhere else that image is shown) now reflects the new photo immediately after a retake. The File ID and filename in Drive are unaffected and still stay identical, as designed.' },
+  { version:'4.5', date: nowISO(), type:'minor', summary:'Method C (Mobile Camera) is now a true one-image-per-asset slot: retaking a photo overwrites the same Drive file in place instead of creating a new one, and Clear now permanently deletes the Drive file (with a confirmation warning) instead of just unlinking it — no more orphaned "dead" images piling up in Drive.',
+    detail:'Reworked Method C\'s upload flow into a proper upsert: if this asset already has a Method C-managed photo, taking a new one now sends a PATCH to overwrite that exact Drive file\'s binary content — same File ID, same filename, same thumbnail link, only the image content and captured-at timestamp change. A brand-new capture (no existing photo) still creates a new file as before. Renamed the "Retake / Clear" button to "Clear" and changed what it does: clicking it now shows a hard warning ("CRITICAL: This will permanently delete the image from Google Drive and remove the link from this asset. This action cannot be undone. Proceed?"), and on confirmation actually deletes the file from Drive (not just the link) before resetting the form back to empty. The "Take / Choose Photo" button stays available at all times, including when a photo already exists — tapping it always opens the camera/picker, and on a successful new capture it automatically overwrites rather than duplicating. Safety scoping: overwrite and delete only ever apply to files this feature itself uploaded (tracked via the asset\'s own capture ID) — an image pasted in via Method B\'s manual URL field is never touched by Clear or overwritten by a new Method C capture, since Method C has no way to know if that\'s a shared/external file. Net effect: Drive\'s ItemsImages folder stays at exactly one file per asset that has a Method C photo, with no leftover files from retakes.' },
+  { version:'4.4', date: nowISO(), type:'minor', summary:'Hardened the mobile/tablet experience: forced cache revalidation so phones stop showing stale builds after an update, added touch-tap feedback to buttons that previously only had a hover state, and prevented the Mobile Camera box\'s buttons from overflowing on narrow screens.',
+    detail:'The v4.3 Admin Email Guard on Asset Image Method A/B is a single responsive template driven by isAdminSession() — it cannot literally behave differently by device — so the most likely cause of it appearing to "only work on PC" is a phone or tablet browser (especially one added to the Home Screen) serving a cached older build. Added no-cache/must-revalidate meta tags so every visit re-fetches the latest file instead of a stale cached copy. Separately hardened touch usability across recently-added controls: buttons that relied only on a :hover highlight (Take/Retake photo, Edit/Save Configuration toggles) now also have a matching :active state so tapping on a touchscreen gives the same visual feedback a mouse hover gives on desktop; the Mobile Camera box\'s button row now wraps instead of risking overflow on narrow phone widths. Standing rule going forward: every future update/change must be verified for PC, Mobile, and Tablet layouts, not just desktop.' },
+  { version:'4.3', date: nowISO(), type:'minor', summary:'Locked Asset Image Method A (Local Upload) and Method B (Cloud URL) on the Edit Form to the Administrator account only, matching the same lock message and pattern already used for Company Metadata and Branding Logo.',
+    detail:'Method A (Local Upload) and Method B (Cloud URL) in the Edit Form\'s Asset Image section are now gated behind isAdminSession() — only gaialakewebapps@gmail.com sees the actual controls; every other signed-in account sees the same compact lock notice ("Standard Manager Account: Core system configurations are locked by the Administrator.") already used to lock the Company Metadata and Branding Logo panels in Settings, reusing the identical icon and wording for consistency. Method C (Mobile Camera) stays open to all users, since it uploads straight to a fixed Drive folder rather than accepting an arbitrary local file or URL. Non-admin sessions no longer render the underlying input fields for A/B at all, and the Save flow was hardened to skip reading them when absent instead of erroring.' },
   { version:'4.2', date: nowISO(), type:'minor', summary:'New Method C on the Edit Form: take a live photo on mobile that auto-compresses and uploads straight to your Drive folder, with a permanent capture ID and timestamp — no more bulky inline images.',
     detail:'Added a third image-capture option to the Asset Image section of the Edit Form, alongside the existing Local Upload and Cloud URL methods: "Method C — Mobile Camera" opens the phone\'s camera directly (via capture="environment"), instantly previews the shot, downscales it on-device to a max 1000px WebP at 0.7 quality, and uploads that compressed file straight to the shared Google Drive folder — the saved asset record only stores the resulting Drive thumbnail link, not a bulky embedded image, keeping the active-file cloud payload lightweight the same way v4.0\'s history-archive split did. Each capture gets a permanent identifier in the form IMG-YYYYMMDD-HHMMSS-xxxxxxxx (timestamp plus a short random tag) shown under the preview along with the exact date/time taken — deliberately independent of the Asset Number and Location, since either can change later when an item is renumbered or moved, and the capture record shouldn\'t. A "Retake / Clear" button appears once a photo is captured, letting the user wipe the shot and try again before saving. Requires being signed in to Google Drive (Settings → Cloud Connection Workspace) since this method uploads directly; the existing Local Upload and Cloud URL methods still work without sign-in as before.' },
   { version:'4.1', date: nowISO(), type:'major', summary:'Fixed a version-number regression on cloud sync, rebuilt the manifest PDF as sharp native text with a header/footer on every page, fixed unreadable Category/Location pills in Dark Mode, added Asset Name type-ahead search on the Dashboard, and added Edit/Save locks to Cloud Connection and Company Metadata settings.',
@@ -875,6 +947,10 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.0'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.1'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.2'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.3'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.4'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.5'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.6'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -914,7 +990,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.2', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.6', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -1700,21 +1776,21 @@ function renderStandardForm(e){
     <div class="border-t border-[#EFEBDD] pt-4">
       <p class="lbl mb-2">Asset Image</p>
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        <div class="border border-dashed border-[#DCD7C6] rounded-xl p-3 text-center">
+        ${isAdminSession() ? `<div class="border border-dashed border-[#DCD7C6] rounded-xl p-3 text-center">
           <p class="text-[11px] font-semibold text-[#8a8471] mb-2">Method A — Local Upload</p>
           <input id="f-image-file" type="file" accept="image/*" class="text-xs w-full"/>
-        </div>
-        <div class="border border-dashed border-[#DCD7C6] rounded-xl p-3">
+        </div>` : adminLockBox('Method A — Local Upload')}
+        ${isAdminSession() ? `<div class="border border-dashed border-[#DCD7C6] rounded-xl p-3">
           <p class="text-[11px] font-semibold text-[#8a8471] mb-2">Method B — Cloud URL (Google Drive auto-converts)</p>
           <input id="f-image-url" type="text" class="inp text-xs" placeholder="Paste image or Google Drive link" value="${(e.imageSrc && e.imageSrc.startsWith('http'))?escapeHtml(e.imageSrc):''}"/>
           <p class="text-[10px] text-[#a89f85] mt-1.5 leading-snug">In Google Drive, right-click the file → Share → set to <strong>"Anyone with the link"</strong> (Viewer). Restricted files cannot be embedded, even if you're signed in.</p>
-        </div>
+        </div>` : adminLockBox('Method B — Cloud URL')}
         <div class="border border-dashed border-[#DCD7C6] rounded-xl p-3 text-center" data-image-capture>
           <p class="text-[11px] font-semibold text-[#8a8471] mb-2">Method C — Mobile Camera (auto-uploads to Drive)</p>
           <input id="f-image-mobile" type="file" accept="image/*" capture="environment" class="hidden"/>
-          <div class="flex items-center justify-center gap-2">
-            <button type="button" id="f-image-mobile-btn" class="px-3 py-2 rounded-lg border border-[#E2DFD3] text-xs font-medium hover:bg-[#F1EEE3]">📷 Take / Choose Photo</button>
-            <button type="button" id="f-image-mobile-clear" class="${e.imageId?'':'hidden'} px-3 py-2 rounded-lg border border-red-200 text-red-500 text-xs font-medium hover:bg-red-50">Retake / Clear</button>
+          <div class="flex items-center justify-center flex-wrap gap-2">
+            <button type="button" id="f-image-mobile-btn" class="px-3 py-2 rounded-lg border border-[#E2DFD3] text-xs font-medium hover:bg-[#F1EEE3] active:bg-[#F1EEE3]">📷 Take / Choose Photo</button>
+            <button type="button" id="f-image-mobile-clear" class="${e.imageId?'':'hidden'} px-3 py-2 rounded-lg border border-red-200 text-red-500 text-xs font-medium hover:bg-red-50 active:bg-red-50">Clear</button>
           </div>
           <p id="f-image-mobile-status" class="text-[10px] text-[#a89f85] mt-1.5 leading-snug min-h-[2.4em]">${state.cloud.connected ? 'Compresses to ≤1000px WebP and uploads straight to your Drive folder — no base64 bloat in the saved record.' : 'Sign in to Google Drive in Settings first — this method uploads directly to your shared Drive folder.'}</p>
         </div>
@@ -1858,7 +1934,8 @@ function readFormIntoEditing(){
   if(subcatEl) e.subCategory = subcatEl.value.trim();
   const remarksEl = document.getElementById('f-remarks');
   if(remarksEl) e.remarks = remarksEl.value.trim();
-  const urlVal = document.getElementById('f-image-url').value.trim();
+  const urlEl = document.getElementById('f-image-url');
+  const urlVal = urlEl ? urlEl.value.trim() : '';
   if(urlVal) e.imageSrc = convertImageUrl(urlVal);
 }
 
@@ -2312,6 +2389,21 @@ function adminLockNotice(title){
       </div>
     </section>`;
 }
+/* Compact variant of adminLockNotice() for use as a single grid cell (e.g. the
+   Edit Form's Asset Image methods) rather than a full-width settings section —
+   same lock icon and exact same message, just sized to fit inline. */
+function adminLockBox(title){
+  return `
+    <div class="border border-dashed border-[#DCD7C6] rounded-xl p-3">
+      <div class="flex items-start gap-2">
+        <span class="p-1.5 rounded-lg bg-[#F1EEE3] text-[#8a8471] shrink-0">${iconLock()}</span>
+        <div>
+          <p class="text-[11px] font-semibold text-[#8a8471]">${escapeHtml(title)}</p>
+          <p class="text-[10px] text-[#a89f85] mt-1 leading-snug">Standard Manager Account: Core system configurations are locked by the Administrator.</p>
+        </div>
+      </div>
+    </div>`;
+}
 
 /* ---------------------------------------------------------------------------
    17b. INFORMATION VIEW — static Asset Condition Definitions reference
@@ -2377,7 +2469,7 @@ function renderSettingsView(){
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
       <div class="flex items-center justify-between flex-wrap gap-2">
         <p class="font-display font-semibold">Company Metadata</p>
-        <button id="s-company-meta-toggle" class="px-3 py-1.5 rounded-lg border border-[#E2DFD3] text-xs font-medium hover:bg-[#F1EEE3]">${companyMetaEditing?'Save':'Edit'}</button>
+        <button id="s-company-meta-toggle" class="px-3 py-1.5 rounded-lg border border-[#E2DFD3] text-xs font-medium hover:bg-[#F1EEE3] active:bg-[#F1EEE3]">${companyMetaEditing?'Save':'Edit'}</button>
       </div>
       <p class="text-[11px] text-[#a89f85]">${companyMetaEditing ? 'Unlocked — update the details below, then click Save to lock them again.' : 'Locked to prevent accidental changes. Click Edit to update.'}</p>
       <div class="grid sm:grid-cols-2 gap-4">
@@ -2508,7 +2600,7 @@ function renderSettingsView(){
         <div class="sm:col-span-2"><label class="lbl">Target Shared Folder ID</label><input id="s-cloud-folder-id" type="text" class="inp font-mono disabled:opacity-60 disabled:cursor-not-allowed" ${cloudConfigEditing?'':'disabled'} placeholder="1AbCDefGhIJkLmnOPqrsTUvwxYZ..." value="${escapeHtml(state.cloud.folderId||'')}"/></div>
       </div>
       <div class="flex flex-wrap items-center gap-3">
-        <button id="s-cloud-save" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">${cloudConfigEditing?'Save Configuration':'Edit Configuration'}</button>
+        <button id="s-cloud-save" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] active:bg-[#F1EEE3]">${cloudConfigEditing?'Save Configuration':'Edit Configuration'}</button>
         <button id="s-cloud-signin" class="px-4 py-2.5 rounded-xl cloud-signin-btn text-sm font-medium">${state.cloud.connected ? 'Sign Out' : 'Sign In with Google'}</button>
         <button id="s-cloud-sync-now" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] ${state.cloud.connected?'':'hidden'}" ${state.cloud.connected?'':'disabled'}>Sync Now</button>
         ${state.cloud.userEmail ? `<span class="text-xs text-[#8a8471]">Signed in as ${escapeHtml(state.cloud.userEmail)}</span>` : ''}
