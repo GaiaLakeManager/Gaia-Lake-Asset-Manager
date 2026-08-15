@@ -19,6 +19,7 @@ or redistribution is strictly prohibited.
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <!-- Google Identity Services (OAuth2) + Google API Client, used by the Cloud Connection
      Workspace in Settings for the optional Google Drive live-sync feature. -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -71,6 +72,11 @@ or redistribution is strictly prohibited.
     #print-root, #print-root *{ visibility:visible; }
     #print-root{ position:absolute; top:0; left:0; width:100%; }
     .no-print{ display:none !important; }
+    /* Never slice a table row (or the item card) across a page boundary — this was
+       the cause of text being cut off mid-row on the browser Print path. */
+    #print-root tr, #print-root .avoid-break{ break-inside:avoid; page-break-inside:avoid; }
+    #print-root thead{ display:table-header-group; }
+    #print-root table{ border-collapse:collapse; }
   }
   .modal-backdrop{ background:rgba(20,20,15,0.55); backdrop-filter: blur(2px); }
   .scroll-thin{ scrollbar-width: thin; }
@@ -103,7 +109,13 @@ or redistribution is strictly prohibited.
   #shell.dark [class*="text-[#4b4736]"]{ color:#cfcbbc !important; }
   #shell.dark [class*="text-[#c9c3ac]"]{ color:#6b6f78 !important; }
   #shell.dark [class*="text-[#21261f]"]{ color:#EDEAE0 !important; }
-  #shell.dark h1, #shell.dark h2, #shell.dark p, #shell.dark span:not([class*="badge-"]), #shell.dark td, #shell.dark label{ color:inherit; }
+  #shell.dark h1, #shell.dark h2, #shell.dark p, #shell.dark span:not([class*="badge-"]):not([class*="theme-text"]), #shell.dark td, #shell.dark label{ color:inherit; }
+  /* Category/Location pills (theme-tint + theme-text together) were unreadable in
+     dark mode: the pale light-mode tint background stayed pale while the blanket
+     span color:inherit rule above wiped out theme-text's own color, leaving
+     near-white text on a near-white pill. Give the tint a dark-safe background and
+     let theme-text keep its real (already-legible) accent color here. */
+  #shell.dark .theme-tint{ background-color:#2b2f38 !important; }
   #shell.dark .inp{ background:#1c2027 !important; border-color:#333844 !important; color:#EDEAE0 !important; }
   #shell.dark ::placeholder{ color:#6b6f78 !important; }
   #shell.dark .modal-backdrop ~ *, #shell.dark [class*="bg-[#F7F5EF]"]{ color:inherit; }
@@ -156,7 +168,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.0</span>
+      <span id="sidebar-version">v4.2</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -215,7 +227,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.0</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.2</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -571,6 +583,116 @@ function compressImageFile(file){
   });
 }
 
+/* ---- Method C: mobile camera capture → compress → upload to Drive ---------
+   Distinct from compressImageFile() above (which is the small 400px inline
+   base64 path used by Method A). This path targets a sharper 1000px WebP,
+   uploads the blob to the shared Drive folder instead of embedding it inline,
+   and returns a hidden identity for the capture. */
+function compressImageForMobileUpload(file, maxDim, quality){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = (e)=>{
+      const img = new Image();
+      img.onload = ()=>{
+        let { width, height } = img;
+        if(width > height && width > maxDim){ height = Math.round(height*(maxDim/width)); width = maxDim; }
+        else if(height >= width && height > maxDim){ width = Math.round(width*(maxDim/height)); height = maxDim; }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        canvas.toBlob(blob=>{
+          if(!blob){ reject(new Error('Compression failed.')); return; }
+          resolve({ blob, dataUrl: canvas.toDataURL('image/webp', quality) });
+        }, 'image/webp', quality);
+      };
+      img.onerror = ()=> reject(new Error('That file could not be read as an image.'));
+      img.src = e.target.result;
+    };
+    reader.onerror = ()=> reject(new Error('Could not read the selected file.'));
+    reader.readAsDataURL(file);
+  });
+}
+/* Permanent, collision-safe image identity — deliberately NOT derived from
+   Asset Number or Location, since both can change after the photo is taken
+   (the item gets renumbered or relocated). A capture timestamp + short random
+   tag is unique, sortable, and never goes stale. */
+function generateAssetImageId(){
+  const now = new Date();
+  const stamp = now.getFullYear().toString() + String(now.getMonth()+1).padStart(2,'0') + String(now.getDate()).padStart(2,'0')
+    + '-' + String(now.getHours()).padStart(2,'0') + String(now.getMinutes()).padStart(2,'0') + String(now.getSeconds()).padStart(2,'0');
+  const rand = (window.crypto && crypto.randomUUID) ? crypto.randomUUID().slice(0,8) : Math.random().toString(36).slice(2,10);
+  return { id: `IMG-${stamp}-${rand}`, capturedAt: now.toISOString() };
+}
+async function uploadAssetImageToDrive(blob, fileName){
+  const metadata = { name: fileName, parents:[DRIVE_IMAGES_FOLDER_ID], mimeType:'image/webp' };
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(metadata)], {type:'application/json'}));
+  form.append('file', blob);
+  const file = await driveFetchJson('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+    method:'POST', body: form
+  });
+  // Link-viewable so the thumbnail URL renders without every viewer being
+  // signed into the same Google account. Non-fatal if org policy blocks it —
+  // the file is still uploaded and reachable to anyone already on the Drive.
+  await driveFetchJson(`https://www.googleapis.com/drive/v3/files/${file.id}/permissions`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({role:'reader', type:'anyone'})
+  }).catch(()=>{});
+  return file;
+}
+async function handleMobileImageUpload(event){
+  const file = event.target.files && event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('f-image-mobile-status');
+  const clearBtn = document.getElementById('f-image-mobile-clear');
+  if(!state.cloud.connected){
+    showToast('Sign in to Google Drive in Settings first — Method C uploads directly to Drive.', 'error');
+    event.target.value = '';
+    return;
+  }
+  try{
+    if(statusEl) statusEl.textContent = 'Compressing photo…';
+    const { blob, dataUrl } = await compressImageForMobileUpload(file, 1000, 0.7);
+    // Instant local preview before the Drive round-trip finishes.
+    state.editing.imageSrc = dataUrl;
+    refreshImagePreview();
+
+    if(statusEl) statusEl.textContent = 'Uploading to Google Drive…';
+    const { id: imageId, capturedAt } = generateAssetImageId();
+    const uploaded = await uploadAssetImageToDrive(blob, `${imageId}.webp`);
+    const thumbLink = `https://drive.google.com/thumbnail?id=${uploaded.id}&sz=w1000`;
+
+    state.editing.imageSrc = thumbLink;
+    state.editing.imageId = imageId;
+    state.editing.imageCapturedAt = capturedAt;
+    const urlInput = document.getElementById('f-image-url');
+    if(urlInput) urlInput.value = thumbLink;
+    refreshImagePreview();
+    if(clearBtn) clearBtn.classList.remove('hidden');
+    if(statusEl) statusEl.textContent = 'Uploaded ✓ — ' + imageId;
+  }catch(err){
+    console.error('Mobile image upload failed:', err);
+    if(statusEl) statusEl.textContent = 'Upload failed — ' + err.message;
+    showToast('Photo upload failed: '+err.message, 'error');
+  }finally{
+    event.target.value = ''; // lets the same file be re-picked later if needed
+  }
+}
+function clearMobileImage(){
+  state.editing.imageSrc = '';
+  state.editing.imageId = null;
+  state.editing.imageCapturedAt = null;
+  const urlInput = document.getElementById('f-image-url');
+  if(urlInput) urlInput.value = '';
+  const fileInput = document.getElementById('f-image-mobile');
+  if(fileInput) fileInput.value = '';
+  const statusEl = document.getElementById('f-image-mobile-status');
+  if(statusEl) statusEl.textContent = state.cloud.connected ? 'Compresses to ≤1000px WebP and uploads straight to your Drive folder — no base64 bloat in the saved record.' : 'Sign in to Google Drive in Settings first — this method uploads directly to your shared Drive folder.';
+  const clearBtn = document.getElementById('f-image-mobile-clear');
+  if(clearBtn) clearBtn.classList.add('hidden');
+  refreshImagePreview();
+}
+
+
 /* ---------------------------------------------------------------------------
    2b. HARDCODED GLOBAL CREDENTIALS & CONFIGURATION (production defaults)
    These are baked into the source so managers never have to type them in.
@@ -585,6 +707,10 @@ const DEFAULT_CLOUD_CONFIG = {
   apiKey:   'AIzaSyAUSaqro9KJzDugSrEK0PW3mxPSIzFXPXU',
   folderId: '1x-1NAu5-kmOcGD-4Teq5Ppo7EMTralmw'
 };
+// Dedicated subfolder for Method C mobile-camera uploads (gaialakewebapps@gmail.com
+// My Drive/WebApps/AssetsApp/ItemsImages) — separate from the main sync folder above,
+// which only holds the two JSON payload files.
+const DRIVE_IMAGES_FOLDER_ID = '1y0iJnUSyYWDDkox72rfzZ-Dm5LWWS6V-';
 // Google Drive "view" links don't work as an <img src>; converted to the direct-content form.
 const DEFAULT_LOGO_URL = 'https://drive.google.com/uc?export=view&id=1bsN5z_QUDfAyaVKfjWVDAWPWdeOeUJxR';
 const DEFAULT_COMPANY = {
@@ -700,6 +826,10 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.2', date: nowISO(), type:'minor', summary:'New Method C on the Edit Form: take a live photo on mobile that auto-compresses and uploads straight to your Drive folder, with a permanent capture ID and timestamp — no more bulky inline images.',
+    detail:'Added a third image-capture option to the Asset Image section of the Edit Form, alongside the existing Local Upload and Cloud URL methods: "Method C — Mobile Camera" opens the phone\'s camera directly (via capture="environment"), instantly previews the shot, downscales it on-device to a max 1000px WebP at 0.7 quality, and uploads that compressed file straight to the shared Google Drive folder — the saved asset record only stores the resulting Drive thumbnail link, not a bulky embedded image, keeping the active-file cloud payload lightweight the same way v4.0\'s history-archive split did. Each capture gets a permanent identifier in the form IMG-YYYYMMDD-HHMMSS-xxxxxxxx (timestamp plus a short random tag) shown under the preview along with the exact date/time taken — deliberately independent of the Asset Number and Location, since either can change later when an item is renumbered or moved, and the capture record shouldn\'t. A "Retake / Clear" button appears once a photo is captured, letting the user wipe the shot and try again before saving. Requires being signed in to Google Drive (Settings → Cloud Connection Workspace) since this method uploads directly; the existing Local Upload and Cloud URL methods still work without sign-in as before.' },
+  { version:'4.1', date: nowISO(), type:'major', summary:'Fixed a version-number regression on cloud sync, rebuilt the manifest PDF as sharp native text with a header/footer on every page, fixed unreadable Category/Location pills in Dark Mode, added Asset Name type-ahead search on the Dashboard, and added Edit/Save locks to Cloud Connection and Company Metadata settings.',
+    detail:'Fixed an important bug where signing in on a device could silently roll the displayed app version number backward (e.g. showing v3.3 again after already running v4.0) — a stale version number cached in an old Drive file could overwrite the correct locally-known version on login; the version number is now only ever allowed to move forward on sync, never backward. Rebuilt the Full Inventory Manifest PDF (View PDF / Download Full PDF) from a rasterized screenshot into real, sharp PDF text with proper pagination via jsPDF-autotable — rows can no longer be sliced in half across a page break, and Company Metadata (name, address, contact info, logo) now repeats as a header with \"Page X of Y\" plus the printed date/time repeating as a footer on every single page, all inside a true 0.75in margin. The on-screen Manifest Preview (Print & Export page) now shows the complete filtered list in a scrollable table instead of capping at 8 rows with a \"+N more\" notice. The browser Print path also got a fix to stop table rows from being cut in half across a printed page. Fixed a Dark Mode bug where Asset Categories and Storage Locations pills in Settings were unreadable — a broad text-color rule was silently overriding their intended accent color, leaving near-invisible text on a pale background; both now use dark-safe, readable colors. The Dashboard filter bar on the All-Time Condition Breakdown roster now has an Asset Name type-to-search box with live matching suggestions (backed by a datalist of existing names) instead of a plain dropdown, and matches partial text rather than requiring an exact pick. Added an Edit/Save lock to the Cloud Connection Workspace (the existing Save Configuration button now doubles as the toggle: Edit Configuration unlocks the three fields, Save Configuration saves and re-locks them) and a new matching Edit/Save toggle on the Company Metadata panel, so neither section can be changed by an accidental click or tap — both default to locked/read-only.' },
   { version:'4.0', date: nowISO(), type:'major', summary:'Cloud sync overhaul: fixed a login race that could let stale offline data overwrite the shared Drive file, and split the history/changelog log into its own lightweight file.',
     detail:'Fixed a Cloud Sync priority bug: on sign-in, the app now guarantees a full pull FROM Google Drive lands on the device FIRST, and blocks every auto-sync push until that pull has completed — closing a race where stale local/offline data could momentarily overwrite the shared Drive file right after login, before the fresh remote copy had finished loading. Restructured cloud storage into two Drive files: gaia_lake_inventory.json now holds only active assets, Settings, and current state, and stays small and fast on every login, edit, and 20-second background sync; the full History action log and version changelog moved to a new gaia_Asset_history_archive.json, which is only fetched from or pushed to Drive the first time the History page or Settings (where the changelog lives) is opened in a session. History and changelog entries merge across devices instead of overwriting, so nothing recorded on another device is lost when this device\'s archive loads. Everyday sync payloads are meaningfully smaller as a result, with no change to how assets, History, or the changelog look or behave on screen.' },
   { version:'3.5', date: nowISO(), type:'minor', summary:'Quality pass: consistent Asset Number wording, more dark mode fixes, real 0.75in PDF margins, and name/location/category autocomplete.',
@@ -743,6 +873,8 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='3.4'),
   DEFAULT_CHANGELOG.find(c=>c.version==='3.5'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.0'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.1'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.2'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -782,7 +914,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.0', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.2', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -1039,6 +1171,7 @@ function mapViewToBottom(){
   return 'dashboard';
 }
 function navigateTo(view, loc){
+  if(view !== 'settings'){ companyMetaEditing = false; cloudConfigEditing = false; }
   state.view = view === 'locations' ? 'dashboard' : view;
   if(view==='locations') state.view='dashboard';
   if(view==='location'){ state.view='location'; state.activeLocation=loc; }
@@ -1258,10 +1391,8 @@ function dashFilterBarHtml(){
       <option value="">All Asset #</option>
       ${numbers.map(n=>`<option value="${escapeHtml(n)}" ${dashFilters.assetNumber===n?'selected':''}>${escapeHtml(n)}</option>`).join('')}
     </select>
-    <select id="rf-assetname" class="inp text-xs" ${selStyle}>
-      <option value="">All Asset Names</option>
-      ${names.map(n=>`<option value="${escapeHtml(n)}" ${dashFilters.assetName===n?'selected':''}>${escapeHtml(n)}</option>`).join('')}
-    </select>
+    <input id="rf-assetname" type="text" list="rf-assetname-datalist" class="inp text-xs" ${selStyle} placeholder="All Asset Names" value="${escapeHtml(dashFilters.assetName)}"/>
+    <datalist id="rf-assetname-datalist">${names.map(n=>`<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
     <select id="rf-location" class="inp text-xs" ${selStyle}>
       <option value="">All Locations</option>
       ${LOCATIONS.map(l=>`<option value="${escapeHtml(l.name)}" ${dashFilters.location===l.name?'selected':''}>${escapeHtml(l.name)}</option>`).join('')}
@@ -1280,7 +1411,7 @@ function dashFilterBarHtml(){
 function filteredRosterRows(){
   return state.assets.filter(a=>
     (!dashFilters.assetNumber || a.assetNumber===dashFilters.assetNumber) &&
-    (!dashFilters.assetName || a.name===dashFilters.assetName) &&
+    (!dashFilters.assetName || a.name.toLowerCase().includes(dashFilters.assetName.toLowerCase())) &&
     (!dashFilters.location || a.location===dashFilters.location) &&
     (!dashFilters.category || a.category===dashFilters.category) &&
     (!dashFilters.condition || a.condition===dashFilters.condition)
@@ -1568,7 +1699,7 @@ function renderStandardForm(e){
 
     <div class="border-t border-[#EFEBDD] pt-4">
       <p class="lbl mb-2">Asset Image</p>
-      <div class="grid sm:grid-cols-2 gap-3">
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <div class="border border-dashed border-[#DCD7C6] rounded-xl p-3 text-center">
           <p class="text-[11px] font-semibold text-[#8a8471] mb-2">Method A — Local Upload</p>
           <input id="f-image-file" type="file" accept="image/*" class="text-xs w-full"/>
@@ -1578,8 +1709,18 @@ function renderStandardForm(e){
           <input id="f-image-url" type="text" class="inp text-xs" placeholder="Paste image or Google Drive link" value="${(e.imageSrc && e.imageSrc.startsWith('http'))?escapeHtml(e.imageSrc):''}"/>
           <p class="text-[10px] text-[#a89f85] mt-1.5 leading-snug">In Google Drive, right-click the file → Share → set to <strong>"Anyone with the link"</strong> (Viewer). Restricted files cannot be embedded, even if you're signed in.</p>
         </div>
+        <div class="border border-dashed border-[#DCD7C6] rounded-xl p-3 text-center" data-image-capture>
+          <p class="text-[11px] font-semibold text-[#8a8471] mb-2">Method C — Mobile Camera (auto-uploads to Drive)</p>
+          <input id="f-image-mobile" type="file" accept="image/*" capture="environment" class="hidden"/>
+          <div class="flex items-center justify-center gap-2">
+            <button type="button" id="f-image-mobile-btn" class="px-3 py-2 rounded-lg border border-[#E2DFD3] text-xs font-medium hover:bg-[#F1EEE3]">📷 Take / Choose Photo</button>
+            <button type="button" id="f-image-mobile-clear" class="${e.imageId?'':'hidden'} px-3 py-2 rounded-lg border border-red-200 text-red-500 text-xs font-medium hover:bg-red-50">Retake / Clear</button>
+          </div>
+          <p id="f-image-mobile-status" class="text-[10px] text-[#a89f85] mt-1.5 leading-snug min-h-[2.4em]">${state.cloud.connected ? 'Compresses to ≤1000px WebP and uploads straight to your Drive folder — no base64 bloat in the saved record.' : 'Sign in to Google Drive in Settings first — this method uploads directly to your shared Drive folder.'}</p>
+        </div>
       </div>
       <div id="image-preview-wrap" class="mt-3">${e.imageSrc?`<img src="${escapeHtml(e.imageSrc)}" class="h-20 rounded-lg border border-[#E7E2D3] object-cover" onerror="window.__imgLoadError && window.__imgLoadError(this)"/>`:''}</div>
+      ${e.imageId ? `<p id="image-capture-id" class="text-[10px] text-[#a89f85] mt-1 font-mono">${escapeHtml(e.imageId)} · captured ${fmtDateTime(new Date(e.imageCapturedAt))}</p>` : `<p id="image-capture-id" class="hidden text-[10px] text-[#a89f85] mt-1 font-mono"></p>`}
       <p id="image-error-note" class="hidden text-[11px] text-red-500 mt-2">This image link couldn't load — the Drive file is probably not shared as "Anyone with the link", or the URL isn't a direct image link.</p>
     </div>
 
@@ -1728,6 +1869,17 @@ function refreshImagePreview(){
   const src = state.editing.imageSrc;
   if(note) note.classList.add('hidden');
   wrap.innerHTML = src ? `<img src="${escapeHtml(src)}" class="h-20 rounded-lg border border-[#E7E2D3] object-cover" onerror="window.__imgLoadError && window.__imgLoadError(this)"/>` : '';
+  refreshImageCaptureBadge();
+}
+function refreshImageCaptureBadge(){
+  const idEl = document.getElementById('image-capture-id');
+  if(!idEl) return;
+  if(state.editing.imageId){
+    idEl.textContent = `${state.editing.imageId} · captured ${fmtDateTime(new Date(state.editing.imageCapturedAt))}`;
+    idEl.classList.remove('hidden');
+  } else {
+    idEl.classList.add('hidden');
+  }
 }
 window.__imgLoadError = function(imgEl){
   imgEl.classList.add('border-red-300');
@@ -1961,7 +2113,12 @@ function bindViewEvents(){
   });
   const urlInput = document.getElementById('f-image-url');
   if(urlInput){
-    const urlHandler = ()=>{ readFormIntoEditing(); refreshImagePreview(); };
+    const urlHandler = ()=>{
+      // A manual edit to the URL field means this image no longer matches the
+      // Method C capture (if any) that last populated it — drop the stale ID.
+      state.editing.imageId = null; state.editing.imageCapturedAt = null;
+      readFormIntoEditing(); refreshImagePreview();
+    };
     urlInput.addEventListener('input', debounce(urlHandler, 250));
     urlInput.addEventListener('change', urlHandler);
     urlInput.addEventListener('keydown', (ev)=>{ if(ev.key==='Enter'){ ev.preventDefault(); urlHandler(); showToast('Synced.', 'info'); } });
@@ -1973,9 +2130,16 @@ function bindViewEvents(){
       if(!file) return;
       const dataUri = await compressImageFile(file);
       state.editing.imageSrc = dataUri;
+      state.editing.imageId = null; state.editing.imageCapturedAt = null;
       refreshImagePreview();
     });
   }
+  const mobileFileInput = document.getElementById('f-image-mobile');
+  if(mobileFileInput) mobileFileInput.addEventListener('change', handleMobileImageUpload);
+  const mobileBtn = document.getElementById('f-image-mobile-btn');
+  if(mobileBtn) mobileBtn.addEventListener('click', ()=> mobileFileInput && mobileFileInput.click());
+  const mobileClearBtn = document.getElementById('f-image-mobile-clear');
+  if(mobileClearBtn) mobileClearBtn.addEventListener('click', clearMobileImage);
   document.querySelectorAll('[data-split-qty]').forEach(inp=>{
     inp.addEventListener('input', ()=>{
       const group = state.assets.filter(a=>a.assetNumber===state.editorBaseAssetNumber);
@@ -2015,6 +2179,8 @@ let dashSearch = '';
 let dashPeriod = 'month';
 let dashRosterOpen = false;
 let dashFilters = { assetNumber:'', assetName:'', location:'', category:'', condition:'' };
+let companyMetaEditing = false;
+let cloudConfigEditing = false;
 
 function renderHistoryView(){
   const rows = filterSortHistory();
@@ -2209,13 +2375,17 @@ function renderSettingsView(){
 
     ${admin ? `
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
-      <p class="font-display font-semibold">Company Metadata</p>
+      <div class="flex items-center justify-between flex-wrap gap-2">
+        <p class="font-display font-semibold">Company Metadata</p>
+        <button id="s-company-meta-toggle" class="px-3 py-1.5 rounded-lg border border-[#E2DFD3] text-xs font-medium hover:bg-[#F1EEE3]">${companyMetaEditing?'Save':'Edit'}</button>
+      </div>
+      <p class="text-[11px] text-[#a89f85]">${companyMetaEditing ? 'Unlocked — update the details below, then click Save to lock them again.' : 'Locked to prevent accidental changes. Click Edit to update.'}</p>
       <div class="grid sm:grid-cols-2 gap-4">
-        <div><label class="lbl">Company Name</label><input id="s-name" class="inp" value="${escapeHtml(s.companyName)}"/></div>
-        <div><label class="lbl">Phone</label><input id="s-phone" class="inp" value="${escapeHtml(s.phone)}"/></div>
-        <div class="sm:col-span-2"><label class="lbl">Address</label><input id="s-address" class="inp" value="${escapeHtml(s.address)}"/></div>
-        <div><label class="lbl">Email</label><input id="s-email" class="inp" value="${escapeHtml(s.email)}"/></div>
-        <div><label class="lbl">Website</label><input id="s-website" class="inp" value="${escapeHtml(s.website)}"/></div>
+        <div><label class="lbl">Company Name</label><input id="s-name" class="inp disabled:opacity-60 disabled:cursor-not-allowed" ${companyMetaEditing?'':'disabled'} value="${escapeHtml(s.companyName)}"/></div>
+        <div><label class="lbl">Phone</label><input id="s-phone" class="inp disabled:opacity-60 disabled:cursor-not-allowed" ${companyMetaEditing?'':'disabled'} value="${escapeHtml(s.phone)}"/></div>
+        <div class="sm:col-span-2"><label class="lbl">Address</label><input id="s-address" class="inp disabled:opacity-60 disabled:cursor-not-allowed" ${companyMetaEditing?'':'disabled'} value="${escapeHtml(s.address)}"/></div>
+        <div><label class="lbl">Email</label><input id="s-email" class="inp disabled:opacity-60 disabled:cursor-not-allowed" ${companyMetaEditing?'':'disabled'} value="${escapeHtml(s.email)}"/></div>
+        <div><label class="lbl">Website</label><input id="s-website" class="inp disabled:opacity-60 disabled:cursor-not-allowed" ${companyMetaEditing?'':'disabled'} value="${escapeHtml(s.website)}"/></div>
       </div>
     </section>` : adminLockNotice('Company Metadata')}
 
@@ -2333,12 +2503,12 @@ function renderSettingsView(){
       </div>
       <p class="text-xs text-[#8a8471]">Connect a shared Google Drive folder so every authorized device reads and writes the same live database. Active assets, Settings, and current state stay in a lightweight <code class="font-mono">gaia_lake_inventory.json</code> that syncs on every edit; the full History log and version changelog live separately in <code class="font-mono">gaia_Asset_history_archive.json</code>, which only loads from Drive the first time you open History or view this changelog below. Generate a Client ID and API Key from your own <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="theme-text underline">Google Cloud Console</a>, and copy the folder ID from your Drive shared-folder link.</p>
       <div class="grid sm:grid-cols-2 gap-4">
-        <div><label class="lbl">Google Client ID</label><input id="s-cloud-client-id" type="text" class="inp font-mono" placeholder="xxxxxxxx.apps.googleusercontent.com" value="${escapeHtml(state.cloud.clientId||'')}"/></div>
-        <div><label class="lbl">Google API Key</label><input id="s-cloud-api-key" type="text" class="inp font-mono" placeholder="AIza..." value="${escapeHtml(state.cloud.apiKey||'')}"/></div>
-        <div class="sm:col-span-2"><label class="lbl">Target Shared Folder ID</label><input id="s-cloud-folder-id" type="text" class="inp font-mono" placeholder="1AbCDefGhIJkLmnOPqrsTUvwxYZ..." value="${escapeHtml(state.cloud.folderId||'')}"/></div>
+        <div><label class="lbl">Google Client ID</label><input id="s-cloud-client-id" type="text" class="inp font-mono disabled:opacity-60 disabled:cursor-not-allowed" ${cloudConfigEditing?'':'disabled'} placeholder="xxxxxxxx.apps.googleusercontent.com" value="${escapeHtml(state.cloud.clientId||'')}"/></div>
+        <div><label class="lbl">Google API Key</label><input id="s-cloud-api-key" type="text" class="inp font-mono disabled:opacity-60 disabled:cursor-not-allowed" ${cloudConfigEditing?'':'disabled'} placeholder="AIza..." value="${escapeHtml(state.cloud.apiKey||'')}"/></div>
+        <div class="sm:col-span-2"><label class="lbl">Target Shared Folder ID</label><input id="s-cloud-folder-id" type="text" class="inp font-mono disabled:opacity-60 disabled:cursor-not-allowed" ${cloudConfigEditing?'':'disabled'} placeholder="1AbCDefGhIJkLmnOPqrsTUvwxYZ..." value="${escapeHtml(state.cloud.folderId||'')}"/></div>
       </div>
       <div class="flex flex-wrap items-center gap-3">
-        <button id="s-cloud-save" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">Save Configuration</button>
+        <button id="s-cloud-save" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">${cloudConfigEditing?'Save Configuration':'Edit Configuration'}</button>
         <button id="s-cloud-signin" class="px-4 py-2.5 rounded-xl cloud-signin-btn text-sm font-medium">${state.cloud.connected ? 'Sign Out' : 'Sign In with Google'}</button>
         <button id="s-cloud-sync-now" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] ${state.cloud.connected?'':'hidden'}" ${state.cloud.connected?'':'disabled'}>Sync Now</button>
         ${state.cloud.userEmail ? `<span class="text-xs text-[#8a8471]">Signed in as ${escapeHtml(state.cloud.userEmail)}</span>` : ''}
@@ -2399,7 +2569,6 @@ function renderSettingsView(){
 
 function renderPrintView(){
   const rows = sortedFilteredAssets();
-  const previewRows = rows.slice(0, 8);
   return `
   <div class="space-y-5 max-w-3xl">
     <div>
@@ -2436,23 +2605,22 @@ function renderPrintView(){
 
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5">
       <p class="text-xs font-semibold uppercase tracking-wider text-[#a89f85] mb-3">Manifest Preview — ${rows.length} item${rows.length===1?'':'s'} ${state.printSelection.location==='all'?'(all locations)':'in '+escapeHtml(state.printSelection.location)}</p>
-      ${rows.length ? `<div class="overflow-x-auto">
+      ${rows.length ? `<div class="overflow-auto max-h-[520px] border border-[#EFEBDD] rounded-lg">
         <table class="w-full text-xs min-w-[600px]">
-          <thead><tr class="text-left text-[11px] uppercase tracking-wider text-[#a89f85] border-b border-[#EFEBDD]">
-            <th class="py-2 pr-3">Asset #</th><th class="py-2 pr-3">Name</th><th class="py-2 pr-3">Category</th><th class="py-2 pr-3">Location</th><th class="py-2 pr-3">Qty</th><th class="py-2 pr-3">Condition</th>
+          <thead class="sticky top-0 bg-white"><tr class="text-left text-[11px] uppercase tracking-wider text-[#a89f85] border-b border-[#EFEBDD]">
+            <th class="py-2 pr-3 pl-3">Asset #</th><th class="py-2 pr-3">Name</th><th class="py-2 pr-3">Category</th><th class="py-2 pr-3">Location</th><th class="py-2 pr-3">Qty</th><th class="py-2 pr-3">Condition</th>
           </tr></thead>
           <tbody>
-            ${previewRows.map(r=>{
+            ${rows.map(r=>{
               const c = condMeta(r.condition);
               return `<tr class="border-b border-[#F5F2E8] last:border-0">
-                <td class="py-2 pr-3 font-mono">${r.assetNumber}</td><td class="py-2 pr-3">${escapeHtml(r.name)}</td>
+                <td class="py-2 pr-3 pl-3 font-mono">${r.assetNumber}</td><td class="py-2 pr-3">${escapeHtml(r.name)}</td>
                 <td class="py-2 pr-3">${escapeHtml(r.category)}</td><td class="py-2 pr-3">${escapeHtml(r.location)}</td>
                 <td class="py-2 pr-3 font-mono">${r.qty}</td><td class="py-2 pr-3"><span class="px-2 py-0.5 rounded-full ${c.cls}">${r.condition}</span></td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>
-        ${rows.length > previewRows.length ? `<p class="text-[11px] text-[#a89f85] mt-2">+ ${rows.length - previewRows.length} more item${rows.length-previewRows.length===1?'':'s'} — use View PDF or Download to see the full manifest.</p>` : ''}
       </div>` : emptyState('Nothing to export', 'No assets match this location filter yet.')}
     </section>
   </div>`;
@@ -2577,12 +2745,25 @@ function bindSettingsEvents(){
   bind('s-csv-export','click', exportAssetsToCsv);
   bind('s-delete-all','click', deleteAllRecords);
 
+  bind('s-company-meta-toggle','click', async ()=>{
+    if(companyMetaEditing){
+      await saveSettingsToDB();
+      showToast('Company Metadata saved and locked.');
+    }
+    companyMetaEditing = !companyMetaEditing;
+    render();
+  });
+
   bind('s-cloud-save','click', async ()=>{
-    state.cloud.clientId = (document.getElementById('s-cloud-client-id').value||'').trim();
-    state.cloud.apiKey = (document.getElementById('s-cloud-api-key').value||'').trim();
-    state.cloud.folderId = (document.getElementById('s-cloud-folder-id').value||'').trim();
-    await saveCloudConfigToDB();
-    showToast('Cloud connection settings saved.');
+    if(cloudConfigEditing){
+      state.cloud.clientId = (document.getElementById('s-cloud-client-id').value||'').trim();
+      state.cloud.apiKey = (document.getElementById('s-cloud-api-key').value||'').trim();
+      state.cloud.folderId = (document.getElementById('s-cloud-folder-id').value||'').trim();
+      await saveCloudConfigToDB();
+      showToast('Cloud connection settings saved and locked.');
+    }
+    cloudConfigEditing = !cloudConfigEditing;
+    render();
   });
   bind('s-cloud-signin','click', ()=>{ state.cloud.connected ? cloudSignOut() : cloudSignIn(); });
   bind('s-cloud-sync-now','click', ()=>cloudManualSync());
@@ -3296,10 +3477,13 @@ async function applyRemoteActiveData(remote){
     await idbPut('meta', { key:'categories', list: cats });
     const locs = Array.isArray(remote.locations) && remote.locations.length ? remote.locations : DEFAULT_LOCATIONS.map(l=>Object.assign({},l));
     await idbPut('meta', { key:'locations', list: locs });
-    // The changelog array lives in the history archive, not here — keep whatever
-    // is already known locally and only take the version number from the active file.
+    // The changelog array lives in the history archive, not here. The version
+    // NUMBER is code-defined (this file's own DEFAULT_CHANGELOG), so a remote
+    // copy is only ever allowed to move it FORWARD — never let a Drive file
+    // written by an older build regress the locally-migrated version back down.
     const remoteVersion = remote.meta && remote.meta.version ? remote.meta.version : state.meta.version;
-    await idbPut('meta', { key:'version', version: remoteVersion, changelog: state.meta.changelog });
+    const finalVersion = cmpVersionStr(remoteVersion, state.meta.version) > 0 ? remoteVersion : state.meta.version;
+    await idbPut('meta', { key:'version', version: finalVersion, changelog: state.meta.changelog });
     await idbPut('meta', { key:'counters', values: remote.counters || {} });
     await idbPut('settings', {
       key:'cloud', clientId: state.cloud.clientId, apiKey: state.cloud.apiKey,
@@ -3560,21 +3744,103 @@ function printSingle(item){
   renderPrintRoot(a4TemplateHtml(item, true));
   setTimeout(()=>window.print(), 150);
 }
-function printManifest(asPdf){
+/* Loads a (possibly cross-origin) image URL and returns a PNG data URL, or
+   null on any failure — used to embed the company logo in the native PDF
+   without letting a CORS/network hiccup abort the whole export. */
+function loadImageDataUrl(url){
+  return new Promise((resolve)=>{
+    if(!url){ resolve(null); return; }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = ()=>{
+      try{
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img,0,0);
+        resolve(c.toDataURL('image/png'));
+      }catch(e){ resolve(null); }
+    };
+    img.onerror = ()=> resolve(null);
+    img.src = url;
+  });
+}
+/* Native vector-text PDF for the Full Inventory Manifest — replaces the old
+   html2canvas raster approach. Fixes two reported problems at once:
+   (1) blurry/low-quality output, since text is now real PDF text rather than
+   a rasterized screenshot; (2) rows being sliced across a page boundary,
+   since jsPDF-autotable paginates by whole rows. Company Metadata (name,
+   address, logo) repeats as a header and "Page X of Y" + printed date/time
+   repeats as a footer on every page, all inside a true 0.75in margin. */
+async function buildManifestPdfDoc(rows){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p','mm','a4');
+  const logoDataUrl = await loadImageDataUrl(state.settings.logo);
+  const marginX = 19.05; // 0.75in on every side
+  const pageWidth = 210, pageHeight = 297;
+  const headerBottom = marginX + 15;
+  const locLabel = state.printSelection.location==='all' ? 'All Locations' : state.printSelection.location;
+  const contactLine = [state.settings.phone, state.settings.email, state.settings.website].filter(Boolean).join('  ·  ');
+
+  const drawHeader = ()=>{
+    doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(33,38,31);
+    doc.text(state.settings.companyName || 'Company Name', marginX, marginX);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(138,132,113);
+    doc.text(state.settings.address || '', marginX, marginX + 5);
+    if(contactLine) doc.text(contactLine, marginX, marginX + 9.5);
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(76,157,56);
+    doc.text('Full Inventory Manifest', pageWidth - marginX, marginX, {align:'right'});
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(138,132,113);
+    doc.text(locLabel, pageWidth - marginX, marginX + 5, {align:'right'});
+    doc.text(`${rows.length} item${rows.length===1?'':'s'}`, pageWidth - marginX, marginX + 9.5, {align:'right'});
+    if(logoDataUrl){
+      try{ doc.addImage(logoDataUrl, 'PNG', pageWidth - marginX - 20, marginX - 9, 20, 13, undefined, 'FAST'); }catch(e){}
+    }
+    doc.setDrawColor(76,157,56); doc.setLineWidth(0.4);
+    doc.line(marginX, headerBottom, pageWidth - marginX, headerBottom);
+  };
+
+  doc.autoTable({
+    head: [['Asset #','Name','Category','Location','Qty','Condition','Updated']],
+    body: rows.map(r=>[r.assetNumber, r.name, r.category, r.location, String(r.qty), r.condition, fmtDate(r.lastUpdated)]),
+    startY: headerBottom + 6,
+    margin: { left: marginX, right: marginX, top: headerBottom + 6, bottom: marginX + 12 },
+    styles: { font:'helvetica', fontSize:8, cellPadding:2, overflow:'linebreak', lineColor:[231,226,211], lineWidth:0.1, textColor:[33,38,31] },
+    headStyles: { fillColor:[76,157,56], textColor:255, fontStyle:'bold', fontSize:8 },
+    alternateRowStyles: { fillColor:[250,248,241] },
+    theme: 'grid',
+    didDrawPage: drawHeader
+  });
+
+  // Footer pass (page numbers + printed date/time) runs after pagination is
+  // final, so "Page X of Y" is accurate on every page.
+  const totalPages = doc.internal.getNumberOfPages();
+  const printedAt = new Date();
+  const printedStr = `Printed ${printedAt.toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'})} · ${printedAt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`;
+  for(let i=1;i<=totalPages;i++){
+    doc.setPage(i);
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(140,140,140);
+    doc.text(`Page ${i} of ${totalPages}`, marginX, pageHeight - marginX + 9);
+    doc.text(printedStr, pageWidth - marginX, pageHeight - marginX + 9, {align:'right'});
+  }
+  doc.setTextColor(0);
+  return doc;
+}
+async function printManifest(asPdf){
   const rows = sortedFilteredAssets();
-  const html = buildManifestHtml(rows);
   if(!asPdf){
-    renderPrintRoot(html);
+    renderPrintRoot(buildManifestHtml(rows));
     setTimeout(()=>window.print(), 150);
   } else {
-    exportPdfFromHtml(html, `inventory-manifest-${new Date().toISOString().slice(0,10)}.pdf`, 'download');
+    const doc = await buildManifestPdfDoc(rows);
+    doc.save(`inventory-manifest-${new Date().toISOString().slice(0,10)}.pdf`);
   }
 }
 function viewManifestPdf(){
   const rows = sortedFilteredAssets();
   if(!rows.length){ showToast('No items match this filter yet.','error'); return; }
-  const html = buildManifestHtml(rows);
-  exportPdfFromHtml(html, `inventory-manifest-${new Date().toISOString().slice(0,10)}.pdf`, 'view');
+  buildManifestPdfDoc(rows).then(doc=>{
+    window.open(doc.output('bloburl'), '_blank');
+  });
 }
 function renderPrintRoot(html){
   let root = document.getElementById('print-root');
