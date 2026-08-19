@@ -32,6 +32,11 @@ or redistribution is strictly prohibited.
 <script src="https://apis.google.com/js/api.js" async defer></script>
 <!-- SheetJS — parses .xlsx / .xls / .csv files client-side for the Import from Excel feature. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Supabase JS client — replaces the old IndexedDB local storage / Google Drive JSON
+     data-sync as the single source of truth for assets, history, categories, locations,
+     settings and counters. Google Sign-In above is kept ONLY for the Drive photo-upload
+     feature (Method C in the asset editor); it is no longer used to sync data. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
@@ -158,6 +163,17 @@ or redistribution is strictly prohibited.
 </head>
 <body class="min-h-screen lg:h-screen lg:overflow-hidden">
 
+<!-- ===================== PIN GATE ===================== -->
+<div id="pin-gate" style="position:fixed;inset:0;background:#1c2128;z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:#fff;border-radius:16px;padding:32px 28px;max-width:320px;width:100%;text-align:center;font-family:Inter,sans-serif;">
+    <div style="width:44px;height:44px;border-radius:10px;background:#4c9d38;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:18px;margin:0 auto 14px;">G</div>
+    <p style="font-weight:600;font-size:15px;margin-bottom:4px;color:#1c2128;">Gaia Lake Inventory</p>
+    <p style="font-size:12.5px;color:#8a8471;margin-bottom:16px;">Enter the access PIN to continue.</p>
+    <input id="pin-input" type="password" inputmode="numeric" autocomplete="off" style="width:100%;padding:11px;border:1px solid #E2DFD3;border-radius:10px;font-size:18px;text-align:center;letter-spacing:6px;box-sizing:border-box;" placeholder="••••" />
+    <p id="pin-error" style="color:#c0392b;font-size:12px;margin-top:8px;display:none;">Incorrect PIN — try again.</p>
+    <button id="pin-submit" style="margin-top:16px;width:100%;padding:11px;border-radius:10px;background:#4c9d38;color:#fff;font-weight:600;border:none;font-size:14px;cursor:pointer;">Unlock</button>
+  </div>
+</div>
 
 <div id="shell" class="lg:h-screen lg:flex lg:flex-col lg:overflow-hidden">
 <div id="app" class="flex flex-col lg:flex-row lg:flex-1 lg:min-h-0">
@@ -288,6 +304,71 @@ or redistribution is strictly prohibited.
 "use strict";
 
 /* ---------------------------------------------------------------------------
+   SUPABASE CONFIG
+   Paste your Project URL and anon public key here (Supabase → Project
+   Settings → API). These are meant to be public/client-visible — write
+   access is enforced server-side by the PIN-gated functions in the SQL
+   setup, not by hiding this key.
+--------------------------------------------------------------------------- */
+const SUPABASE_URL = "https://zkjinfygascjxrjtaxri.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpramluZnlnYXNjanhyanRheHJpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxMDI4OTEsImV4cCI6MjEwMjY3ODg5MX0.XwGYv2dPvJyZzJMkkDH9sgbS61mSMjmjzrhgYjByut8";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Set once the PIN gate below passes; sent with every write RPC call since
+// the anon key alone has no write access (see supabase_setup.sql).
+let APP_PIN = null;
+
+/* ---------------------------------------------------------------------------
+   PIN GATE — blocks the app until a correct PIN is verified server-side.
+   Session-only (sessionStorage), so each new browser tab/session re-prompts.
+--------------------------------------------------------------------------- */
+function requirePin(){
+  return new Promise(async (resolve)=>{
+    const gate = document.getElementById('pin-gate');
+    const input = document.getElementById('pin-input');
+    const err = document.getElementById('pin-error');
+    const btn = document.getElementById('pin-submit');
+
+    async function tryPin(pin){
+      if(!pin) return false;
+      try{
+        const { data, error } = await supabase.rpc('verify_app_pin', { p_pin: pin });
+        return !error && data === true;
+      }catch(e){ return false; }
+    }
+
+    const saved = sessionStorage.getItem('gaia_pin');
+    if(saved && await tryPin(saved)){
+      APP_PIN = saved;
+      gate.remove();
+      resolve();
+      return;
+    }
+    if(saved) sessionStorage.removeItem('gaia_pin');
+
+    async function attempt(){
+      const pin = input.value.trim();
+      if(!pin) return;
+      btn.disabled = true; btn.textContent = 'Checking…';
+      const ok = await tryPin(pin);
+      btn.disabled = false; btn.textContent = 'Unlock';
+      if(!ok){
+        err.style.display = 'block';
+        input.value = ''; input.focus();
+        return;
+      }
+      APP_PIN = pin;
+      sessionStorage.setItem('gaia_pin', pin);
+      gate.remove();
+      resolve();
+    }
+    btn.addEventListener('click', attempt);
+    input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attempt(); });
+    setTimeout(()=> input.focus(), 50);
+  });
+}
+
+/* ---------------------------------------------------------------------------
    0. STATIC CONFIG — locations, categories, conditions
 --------------------------------------------------------------------------- */
 let LOCATIONS = [
@@ -379,78 +460,120 @@ function catByName(n){ return CATEGORIES.find(x=>x.name===n); }
 function condMeta(k){ return CONDITIONS.find(c=>c.key===k) || CONDITIONS[0]; }
 
 /* ---------------------------------------------------------------------------
-   1. INDEXEDDB LAYER
+   1. SUPABASE STORAGE LAYER
+   Drop-in replacement for the old IndexedDB layer: same function names/
+   signatures (idbGetAll/idbGet/idbPut/idbDelete/idbClear) so every business-
+   logic call site elsewhere in this file works unchanged. "assets" and
+   "history" map to real Postgres tables; "settings" and "meta" map to small
+   key/value tables (each row's whole object is stored as JSON, same as the
+   old keyPath:"key" object stores). All writes go through PIN-checked
+   Postgres functions (see supabase_setup.sql) — the anon key alone cannot
+   insert/update/delete.
 --------------------------------------------------------------------------- */
-const DB_NAME = "gaia_lake_assets_db";
-const DB_VERSION = 1;
-let db = null;
+function openDB(){ return Promise.resolve(true); } // no local DB anymore; kept as a no-op so boot() needs no change
 
-function openDB(){
-  return new Promise((resolve,reject)=>{
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = (e)=>{
-      const _db = e.target.result;
-      if(!_db.objectStoreNames.contains("assets")){
-        const s = _db.createObjectStore("assets", { keyPath:"id" });
-        s.createIndex("assetNumber","assetNumber",{unique:false});
-        s.createIndex("location","location",{unique:false});
-        s.createIndex("category","category",{unique:false});
-        s.createIndex("condition","condition",{unique:false});
-      }
-      if(!_db.objectStoreNames.contains("history")){
-        const h = _db.createObjectStore("history", { keyPath:"id" });
-        h.createIndex("assetNumber","assetNumber",{unique:false});
-        h.createIndex("date","date",{unique:false});
-      }
-      if(!_db.objectStoreNames.contains("settings")){
-        _db.createObjectStore("settings", { keyPath:"key" });
-      }
-      if(!_db.objectStoreNames.contains("meta")){
-        _db.createObjectStore("meta", { keyPath:"key" });
-      }
-    };
-    req.onsuccess = (e)=>{ db = e.target.result; resolve(db); };
-    req.onerror = (e)=> reject(e.target.error);
+const ASSET_FIELD_MAP = {
+  id:'id', assetNumber:'asset_number', name:'name', category:'category', subCategory:'sub_category',
+  location:'location', qty:'qty', condition:'condition', purchasePrice:'purchase_price',
+  purchaseDate:'purchase_date', vendor:'vendor', notes:'notes', remarks:'remarks',
+  imageSrc:'image_src', imageId:'image_id', imageCapturedAt:'image_captured_at',
+  createdAt:'created_at', lastUpdated:'last_updated'
+};
+const HISTORY_FIELD_MAP = {
+  id:'id', assetNumber:'asset_number', itemName:'item_name', location:'location', category:'category',
+  qty:'qty', condition:'condition', imageSrc:'image_src', notes:'notes', action:'action', date:'date'
+};
+function toSnakeRow(obj, map){
+  const out = {};
+  Object.keys(map).forEach(k=>{ if(obj[k] !== undefined) out[map[k]] = obj[k]; });
+  return out;
+}
+function toCamelRow(row, map){
+  if(!row) return null;
+  const out = {};
+  Object.keys(map).forEach(camel=>{
+    const snake = map[camel];
+    let v = row[snake];
+    if(v !== undefined && v !== null && (camel === 'purchasePrice')) v = parseFloat(v);
+    out[camel] = v === undefined ? null : v;
   });
+  return out;
 }
 
-function tx(storeName, mode){
-  return db.transaction(storeName, mode).objectStore(storeName);
+async function idbGetAll(storeName){
+  if(storeName === 'assets'){
+    const { data, error } = await supabase.from('assets').select('*');
+    if(error) throw error;
+    return (data||[]).map(r=>toCamelRow(r, ASSET_FIELD_MAP));
+  }
+  if(storeName === 'history'){
+    const { data, error } = await supabase.from('history').select('*');
+    if(error) throw error;
+    return (data||[]).map(r=>toCamelRow(r, HISTORY_FIELD_MAP));
+  }
+  return [];
 }
-function idbGetAll(storeName){
-  return new Promise((resolve,reject)=>{
-    const req = tx(storeName,"readonly").getAll();
-    req.onsuccess = ()=>resolve(req.result || []);
-    req.onerror = (e)=>reject(e.target.error);
-  });
+async function idbGet(storeName,key){
+  if(storeName === 'assets'){
+    const { data, error } = await supabase.from('assets').select('*').eq('id', key).maybeSingle();
+    if(error) throw error;
+    return toCamelRow(data, ASSET_FIELD_MAP);
+  }
+  if(storeName === 'history'){
+    const { data, error } = await supabase.from('history').select('*').eq('id', key).maybeSingle();
+    if(error) throw error;
+    return toCamelRow(data, HISTORY_FIELD_MAP);
+  }
+  if(storeName === 'settings' || storeName === 'meta'){
+    const { data, error } = await supabase.from(storeName).select('data').eq('key', key).maybeSingle();
+    if(error) throw error;
+    return data ? data.data : null;
+  }
+  return null;
 }
-function idbGet(storeName,key){
-  return new Promise((resolve,reject)=>{
-    const req = tx(storeName,"readonly").get(key);
-    req.onsuccess = ()=>resolve(req.result || null);
-    req.onerror = (e)=>reject(e.target.error);
-  });
+async function idbPut(storeName,value){
+  if(storeName === 'assets'){
+    const { data, error } = await supabase.rpc('assets_upsert', { p_pin: APP_PIN, p_row: toSnakeRow(value, ASSET_FIELD_MAP) });
+    if(error) throw error;
+    return toCamelRow(data, ASSET_FIELD_MAP);
+  }
+  if(storeName === 'history'){
+    const { data, error } = await supabase.rpc('history_insert', { p_pin: APP_PIN, p_row: toSnakeRow(value, HISTORY_FIELD_MAP) });
+    if(error) throw error;
+    return toCamelRow(data, HISTORY_FIELD_MAP);
+  }
+  if(storeName === 'settings' || storeName === 'meta'){
+    const { data, error } = await supabase.rpc('kv_upsert', { p_pin: APP_PIN, p_table: storeName, p_data: value });
+    if(error) throw error;
+    return data;
+  }
+  return value;
 }
-function idbPut(storeName,value){
-  return new Promise((resolve,reject)=>{
-    const req = tx(storeName,"readwrite").put(value);
-    req.onsuccess = ()=>{ resolve(value); scheduleCloudPush(storeName, value); };
-    req.onerror = (e)=>reject(e.target.error);
-  });
+async function idbDelete(storeName,key){
+  if(storeName === 'assets'){
+    const { error } = await supabase.rpc('assets_delete', { p_pin: APP_PIN, p_id: key });
+    if(error) throw error;
+    return true;
+  }
+  if(storeName === 'history'){
+    const { error } = await supabase.rpc('history_delete', { p_pin: APP_PIN, p_id: key });
+    if(error) throw error;
+    return true;
+  }
+  return true;
 }
-function idbDelete(storeName,key){
-  return new Promise((resolve,reject)=>{
-    const req = tx(storeName,"readwrite").delete(key);
-    req.onsuccess = ()=>{ resolve(true); scheduleCloudPush(storeName); };
-    req.onerror = (e)=>reject(e.target.error);
-  });
-}
-function idbClear(storeName){
-  return new Promise((resolve,reject)=>{
-    const req = tx(storeName,"readwrite").clear();
-    req.onsuccess = ()=>{ resolve(true); scheduleCloudPush(storeName); };
-    req.onerror = (e)=>reject(e.target.error);
-  });
+async function idbClear(storeName){
+  if(storeName === 'assets'){
+    const { error } = await supabase.rpc('assets_clear', { p_pin: APP_PIN });
+    if(error) throw error;
+  } else if(storeName === 'history'){
+    const { error } = await supabase.rpc('history_clear', { p_pin: APP_PIN });
+    if(error) throw error;
+  } else if(storeName === 'settings' || storeName === 'meta'){
+    const { error } = await supabase.rpc('kv_clear', { p_pin: APP_PIN, p_table: storeName });
+    if(error) throw error;
+  }
+  return true;
 }
 
 /* ---------------------------------------------------------------------------
@@ -905,23 +1028,19 @@ function groupTotals(items){
    recategorization, and location/category renames without ever changing.
    Only assigned once, at New Item creation or Duplicate Asset (a fresh copy
    always gets its own new number, never reuses the original's). */
+// Counter now lives in Postgres and is incremented atomically inside the
+// next_asset_number() function (a single UPDATE per call) — safe across
+// multiple devices writing at once, unlike a client-side read-then-write
+// would be now that the counter is shared instead of per-device local.
 async function nextAssetNumber(){
-  const yy = String(new Date().getFullYear()).slice(-2);
-  const key = `YEAR-${yy}`;
-  const counters = (await idbGet('meta','counters')) || { key:'counters', values:{} };
-  const cur = counters.values[key];
-  const next = (cur===undefined ? -1 : cur) + 1;
-  counters.values[key] = next;
-  await idbPut('meta', counters);
-  return `${yy}${String(next).padStart(4,'0')}`;
+  const { data, error } = await supabase.rpc('next_asset_number', { p_pin: APP_PIN });
+  if(error) throw error;
+  return data;
 }
 async function peekAssetNumber(){
-  const yy = String(new Date().getFullYear()).slice(-2);
-  const key = `YEAR-${yy}`;
-  const counters = (await idbGet('meta','counters')) || { key:'counters', values:{} };
-  const cur = counters.values[key];
-  const next = (cur===undefined ? -1 : cur) + 1;
-  return `${yy}${String(next).padStart(4,'0')}`;
+  const { data, error } = await supabase.rpc('peek_asset_number');
+  if(error) throw error;
+  return data;
 }
 
 /* ---------------------------------------------------------------------------
@@ -3714,39 +3833,15 @@ async function applyRemoteHistoryData(remote){
    login pull and clobber the Drive file. Any local writes that happened
    before syncReady just get queued (dirty) and flushed once it's safe.
 --------------------------------------------------------------------------- */
+// Data (assets/history/settings/categories/locations/counters) now lives in
+// Supabase and needs no Drive file pull/push/poll — every device reads and
+// writes it directly. Google Sign-In is kept only to authorize the Method C
+// "upload photo to Drive" feature in the asset editor, so this just confirms
+// the token is usable and stops here (no JSON file, no polling).
 async function cloudInitialConnect(){
-  state.cloud.syncReady = false;
-  updateCloudBanner(); renderCloudSidebar();
-  try{
-    setCloudStatus('busy','Connecting…');
-    const existing = await findMasterFileByName(CLOUD_FILE_NAME);
-    if(existing){
-      state.cloud.fileId = existing.id;
-      await saveCloudConfigToDB();
-      const remote = await downloadMasterFile(existing.id);
-      await applyRemoteActiveData(remote);
-      state.cloud.lastRemoteModified = existing.modifiedTime;
-      showToast('Loaded the live database from Google Drive.');
-    } else {
-      const payload = await buildActivePayload();
-      const created = await createNamedFile(CLOUD_FILE_NAME, payload);
-      state.cloud.fileId = created.id;
-      state.cloud.lastRemoteModified = created.modifiedTime;
-      await saveCloudConfigToDB();
-      showToast(`Created ${CLOUD_FILE_NAME} in the shared folder.`);
-    }
-    state.cloud.lastSync = nowISO();
-    state.cloud.syncReady = true;
-    setCloudStatus('on','Synced');
-    clearInterval(cloudPollTimer);
-    cloudPollTimer = setInterval(pollCloud, CLOUD_POLL_MS);
-    // Flush anything queued while the pull was in flight — safe now that
-    // device memory has already been overwritten from Drive above.
-    if(state.cloud.dirty) await pushToCloud();
-  }catch(err){
-    setCloudStatus('off','Error');
-    showToast('Google Drive connection failed: '+err.message,'error');
-  }
+  state.cloud.syncReady = true;
+  state.cloud.lastSync = nowISO();
+  setCloudStatus('on','Ready for photo uploads');
   render();
 }
 function scheduleCloudPush(storeName, value){
@@ -3791,39 +3886,11 @@ async function pushToCloud(){
   }
 }
 /* ---- History archive: lazy connect, only when History/Settings is opened - */
+// History is already loaded in full from Supabase by loadAllData() on boot,
+// so there is nothing left to fetch from Drive — kept as a no-op stub since
+// navigateTo() still calls it when the History/Settings page opens.
 async function ensureHistoryCloudLoaded(){
-  if(!state.cloud.connected || state.cloud.historyLoaded || state.cloud.applyingRemote) return;
-  try{
-    state.cloud.historySyncing = true; renderCloudSidebar();
-    let fileMeta = null;
-    if(state.cloud.historyFileId){
-      try{ fileMeta = await getMasterFileMeta(state.cloud.historyFileId); }
-      catch(e){ state.cloud.historyFileId = null; } // cached id no longer resolves — fall back to a name search below
-    }
-    if(!state.cloud.historyFileId){
-      const existing = await findMasterFileByName(CLOUD_HISTORY_FILE_NAME);
-      if(existing){ state.cloud.historyFileId = existing.id; fileMeta = existing; }
-    }
-    if(state.cloud.historyFileId){
-      const remote = await downloadMasterFile(state.cloud.historyFileId);
-      await applyRemoteHistoryData(remote);
-      state.cloud.lastHistoryRemoteModified = fileMeta ? fileMeta.modifiedTime : null;
-    } else {
-      const payload = buildHistoryPayload();
-      const created = await createNamedFile(CLOUD_HISTORY_FILE_NAME, payload);
-      state.cloud.historyFileId = created.id;
-      state.cloud.lastHistoryRemoteModified = created.modifiedTime;
-    }
-    await saveCloudConfigToDB();
-    state.cloud.historyLoaded = true;
-    state.cloud.historySyncReady = true;
-    state.cloud.lastHistorySync = nowISO();
-    if(state.cloud.historyDirty) await pushHistoryToCloud();
-  }catch(err){
-    showToast('Could not load the history archive from Google Drive: '+err.message,'error');
-  } finally {
-    state.cloud.historySyncing = false; renderCloudSidebar();
-  }
+  state.cloud.historyLoaded = true;
 }
 async function pushHistoryToCloud(){
   if(!state.cloud.connected || !state.cloud.historyFileId || state.cloud.applyingRemote || !state.cloud.historySyncReady) return;
@@ -4159,16 +4226,16 @@ async function loadAllData(){
 
 async function boot(){
   try{
-    await openDB();
+    await requirePin();
     await loadAllData();
     await seedIfEmpty();
     render();
     window.addEventListener('online', updateCloudBanner);
     window.addEventListener('offline', updateCloudBanner);
-    attemptSilentCloudSignIn();
+    attemptSilentCloudSignIn(); // Drive sign-in now only authorizes photo uploads (Method C), not data sync
   }catch(err){
     document.getElementById('view-root').innerHTML = `<div class="bg-red-50 border border-red-200 text-red-700 rounded-xl p-6">
-      <p class="font-semibold mb-1">Failed to initialize local database.</p><p class="text-sm">${escapeHtml(err.message||String(err))}</p>
+      <p class="font-semibold mb-1">Failed to load data from Supabase.</p><p class="text-sm">${escapeHtml(err.message||String(err))}</p>
     </div>`;
   }
 }
