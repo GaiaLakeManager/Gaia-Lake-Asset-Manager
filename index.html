@@ -174,7 +174,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.6</span>
+      <span id="sidebar-version">v4.7</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -233,7 +233,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.6</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.7</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -500,9 +500,10 @@ function showToast(msg, type){
 }
 
 let confirmResolver = null;
-function askConfirm(title, body){
+function askConfirm(title, body, confirmLabel){
   document.getElementById('confirm-title').textContent = title;
   document.getElementById('confirm-body').textContent = body;
+  document.getElementById('confirm-ok').textContent = confirmLabel || 'Confirm';
   const dlg = document.getElementById('confirm-dialog');
   dlg.classList.remove('hidden'); dlg.classList.add('flex');
   return new Promise((resolve)=>{ confirmResolver = resolve; });
@@ -661,6 +662,58 @@ async function uploadAssetImageToDrive(blob, fileName, existingFileId){
     method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({role:'reader', type:'anyone'})
   }).catch(()=>{});
   return file;
+}
+let cachedDeletedImagesFolderId = null;
+async function getOrCreateDeletedImagesFolderId(){
+  if(cachedDeletedImagesFolderId) return cachedDeletedImagesFolderId;
+  const q = encodeURIComponent(`name='Items Deleted' and '${state.cloud.folderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const data = await driveFetchJson(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&spaces=drive`);
+  if(data.files && data.files[0]){ cachedDeletedImagesFolderId = data.files[0].id; return cachedDeletedImagesFolderId; }
+  const created = await driveFetchJson('https://www.googleapis.com/drive/v3/files?fields=id', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ name:'Items Deleted', mimeType:'application/vnd.google-apps.folder', parents:[state.cloud.folderId] })
+  });
+  cachedDeletedImagesFolderId = created.id;
+  return cachedDeletedImagesFolderId;
+}
+/* On asset deletion (single, bulk-selected, or Delete All), a Method
+   C-managed Drive photo is MOVED into "Items Deleted" rather than deleted
+   outright — nothing is ever permanently removed automatically; the
+   Administrator reviews and clears that folder manually. Skips the move if
+   another surviving row still shares the exact same image (a split/batch
+   row of the same asset), and is a fire-and-forget best-effort step — it
+   never blocks or fails the local delete itself. */
+async function moveAssetImageToDeletedFolder(entry, remainingAssets){
+  if(!entry || !entry.imageId || !state.cloud.connected) return;
+  const fileId = extractDriveFileId(entry.imageSrc);
+  if(!fileId) return;
+  const stillInUse = remainingAssets.some(a=>a.imageId===entry.imageId);
+  if(stillInUse) return;
+  try{
+    const deletedFolderId = await getOrCreateDeletedImagesFolderId();
+    await driveFetchJson(`https://www.googleapis.com/drive/v3/files/${fileId}?addParents=${deletedFolderId}&removeParents=${DRIVE_IMAGES_FOLDER_ID}&fields=id,parents`, { method:'PATCH' });
+  }catch(err){
+    console.error('Could not move deleted asset\'s image to the Items Deleted folder:', err);
+  }
+}
+/* Method B only (see chat explanation on why Method C can't do this): if the
+   pasted Drive link points to a file currently sitting in "Items Deleted",
+   move it back into ItemsImages so re-referencing an old photo doesn't leave
+   a duplicate copy split across two folders. */
+async function reclaimImageFromDeletedFolder(){
+  if(!state.cloud.connected) return;
+  const fileId = extractDriveFileId(state.editing.imageSrc);
+  if(!fileId) return;
+  try{
+    const meta = await driveFetchJson(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=parents`);
+    const deletedFolderId = await getOrCreateDeletedImagesFolderId();
+    if(meta.parents && meta.parents.includes(deletedFolderId)){
+      await driveFetchJson(`https://www.googleapis.com/drive/v3/files/${fileId}?addParents=${DRIVE_IMAGES_FOLDER_ID}&removeParents=${deletedFolderId}&fields=id,parents`, { method:'PATCH' });
+      showToast('That photo was in Items Deleted — moved back to ItemsImages to avoid a duplicate.', 'info');
+    }
+  }catch(err){
+    console.error('Could not check/reclaim image from Items Deleted folder:', err);
+  }
 }
 async function handleMobileImageUpload(event){
   const file = event.target.files && event.target.files[0];
@@ -845,24 +898,30 @@ function groupTotals(items){
 /* ---------------------------------------------------------------------------
    4. ASSET NUMBER GENERATOR
 --------------------------------------------------------------------------- */
-async function nextAssetNumber(locationName, categoryName){
-  const loc = locByName(locationName), cat = catByName(categoryName);
-  if(!loc || !cat) return null;
-  const prefix = `${loc.code}-${cat.code}-`;
+/* Asset Number format: YY#### — YY is the current year, #### is a 4-digit
+   sequential counter starting at 0000, per year. Deliberately independent of
+   Location/Category (no prefix/code derived from either) so the number stays
+   permanent for the life of the asset — it survives location moves, category
+   recategorization, and location/category renames without ever changing.
+   Only assigned once, at New Item creation or Duplicate Asset (a fresh copy
+   always gets its own new number, never reuses the original's). */
+async function nextAssetNumber(){
+  const yy = String(new Date().getFullYear()).slice(-2);
+  const key = `YEAR-${yy}`;
   const counters = (await idbGet('meta','counters')) || { key:'counters', values:{} };
-  const cur = counters.values[prefix] || 0;
-  const next = cur + 1;
-  counters.values[prefix] = next;
+  const cur = counters.values[key];
+  const next = (cur===undefined ? -1 : cur) + 1;
+  counters.values[key] = next;
   await idbPut('meta', counters);
-  return prefix + String(next).padStart(6,'0');
+  return `${yy}${String(next).padStart(4,'0')}`;
 }
-async function peekAssetNumber(locationName, categoryName){
-  const loc = locByName(locationName), cat = catByName(categoryName);
-  if(!loc || !cat) return '—';
-  const prefix = `${loc.code}-${cat.code}-`;
+async function peekAssetNumber(){
+  const yy = String(new Date().getFullYear()).slice(-2);
+  const key = `YEAR-${yy}`;
   const counters = (await idbGet('meta','counters')) || { key:'counters', values:{} };
-  const cur = (counters.values[prefix] || 0) + 1;
-  return prefix + String(cur).padStart(6,'0');
+  const cur = counters.values[key];
+  const next = (cur===undefined ? -1 : cur) + 1;
+  return `${yy}${String(next).padStart(4,'0')}`;
 }
 
 /* ---------------------------------------------------------------------------
@@ -890,6 +949,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.7', date: nowISO(), type:'major', summary:'New Asset Number format (YY####, permanent and independent of Location/Category), Duplicate Asset confirmation, ascending dropdown order everywhere, a proper picker on Method C (camera or gallery/files), and deleted-asset photos now move to an "Items Deleted" Drive folder instead of vanishing.',
+    detail:'Asset Number format changed to YY#### — YY is the current year, #### is a 4-digit sequential counter starting at 0000, assigned once at New Item or Duplicate Asset and never regenerated again. Removed the old coupling to Location/Category entirely: renaming a Location or Category, or moving/recategorizing an asset (including bulk Move/Recategorize), no longer changes its Asset Number — the number is now a permanent identity that survives the asset moving anywhere. Clicking Duplicate Asset (from any list in the app) now shows a confirmation — "You want to create NEW asset? A NEW asset number will be created." with YES/Cancel — before creating the copy with its own fresh number. All dropdowns and pill lists that list Categories or Locations (Settings, the Edit Form, Dashboard filters, Print & Export) are now sorted ascending by name automatically, sourced from a single sort point so new lists stay sorted with no extra work. Method C\'s "Take / Choose Photo" button no longer forces the camera open directly — it now shows the normal picker so a photo can be taken live or chosen from the gallery/files. Deleting an asset (single delete, bulk-selected delete, or Delete All) no longer permanently deletes its Method C-managed Drive photo — the file is moved into a new "Items Deleted" folder instead, for the Administrator to review and clear manually; a still-in-use sibling split/batch row sharing the same photo is detected and skipped. If a Method B pasted Drive link points to a file sitting in Items Deleted, it\'s automatically moved back into ItemsImages to avoid a duplicate copy — note this one only works for Method B\'s manual link paste, since a native file/camera picker has no way to know a photo came from a specific Drive folder; true drag-and-browse selection from within Drive would need a separate Google Picker API integration.' },
   { version:'4.6', date: nowISO(), type:'patch', summary:'Fixed a bug where retaking a photo via Method C would successfully replace the image on Google Drive, but the form kept showing the old picture.',
     detail:'Root cause: when Method C overwrites an existing photo, the File ID and filename intentionally stay identical (that\'s the whole point of v4.5\'s upsert), which meant the thumbnail URL saved on the asset was also byte-for-byte identical after every retake — so the browser (and Google\'s own thumbnail cache) just kept serving the old cached image for that same URL instead of fetching the new one. The saved thumbnail link now includes a changing cache-busting parameter on every upload/overwrite, forcing both the browser and Drive\'s thumbnail cache to treat it as fresh content — the form (and anywhere else that image is shown) now reflects the new photo immediately after a retake. The File ID and filename in Drive are unaffected and still stay identical, as designed.' },
   { version:'4.5', date: nowISO(), type:'minor', summary:'Method C (Mobile Camera) is now a true one-image-per-asset slot: retaking a photo overwrites the same Drive file in place instead of creating a new one, and Clear now permanently deletes the Drive file (with a confirmation warning) instead of just unlinking it — no more orphaned "dead" images piling up in Drive.',
@@ -951,6 +1012,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.4'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.5'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.6'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.7'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -973,7 +1035,7 @@ async function migrateShortLocationCodesV32(){
     const affected = state.assets.filter(a=>a.location===loc.name);
     for(const row of affected){
       const oldNum = row.assetNumber;
-      const newNum = await nextAssetNumber(loc.name, row.category);
+      const newNum = await nextAssetNumber();
       row.assetNumber = newNum || oldNum;
       row.lastUpdated = nowISO();
       await idbPut('assets', row);
@@ -990,7 +1052,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.6', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.7', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -1050,8 +1112,14 @@ async function loadCategories(){
   } else {
     await idbPut('meta', { key:'categories', list: CATEGORIES });
   }
+  CATEGORIES.sort((a,b)=>a.name.localeCompare(b.name));
 }
+// Every write path (add, rename, import, cloud sync) funnels through this
+// single save function, so sorting here keeps every dropdown/pill list that
+// reads the live CATEGORIES array in ascending order with no per-render sort
+// needed anywhere else.
 async function saveCategories(){
+  CATEGORIES.sort((a,b)=>a.name.localeCompare(b.name));
   await idbPut('meta', { key:'categories', list: CATEGORIES });
 }
 async function loadLocations(){
@@ -1061,8 +1129,10 @@ async function loadLocations(){
   } else {
     await idbPut('meta', { key:'locations', list: LOCATIONS });
   }
+  LOCATIONS.sort((a,b)=>a.name.localeCompare(b.name));
 }
 async function saveLocations(){
+  LOCATIONS.sort((a,b)=>a.name.localeCompare(b.name));
   await idbPut('meta', { key:'locations', list: LOCATIONS });
 }
 /* Find-or-create helpers, used by the Excel importer (and reusable by any
@@ -1787,7 +1857,7 @@ function renderStandardForm(e){
         </div>` : adminLockBox('Method B — Cloud URL')}
         <div class="border border-dashed border-[#DCD7C6] rounded-xl p-3 text-center" data-image-capture>
           <p class="text-[11px] font-semibold text-[#8a8471] mb-2">Method C — Mobile Camera (auto-uploads to Drive)</p>
-          <input id="f-image-mobile" type="file" accept="image/*" capture="environment" class="hidden"/>
+          <input id="f-image-mobile" type="file" accept="image/*" class="hidden"/>
           <div class="flex items-center justify-center flex-wrap gap-2">
             <button type="button" id="f-image-mobile-btn" class="px-3 py-2 rounded-lg border border-[#E2DFD3] text-xs font-medium hover:bg-[#F1EEE3] active:bg-[#F1EEE3]">📷 Take / Choose Photo</button>
             <button type="button" id="f-image-mobile-clear" class="${e.imageId?'':'hidden'} px-3 py-2 rounded-lg border border-red-200 text-red-500 text-xs font-medium hover:bg-red-50 active:bg-red-50">Clear</button>
@@ -1976,7 +2046,7 @@ async function saveStandardItem(){
   const isNewEntry = !e.id;
 
   if(!e.assetNumber){
-    e.assetNumber = await nextAssetNumber(e.location, e.category);
+    e.assetNumber = await nextAssetNumber();
   }
   if(!e.id) e.id = uuid();
   e.lastUpdated = nowISO();
@@ -2111,9 +2181,11 @@ function bindViewEvents(){
     const id = b.getAttribute('data-dup-entry');
     const entry = state.assets.find(a=>a.id===id);
     if(!entry) return;
+    const ok = await askConfirm('You want to create NEW asset?', 'A NEW asset number will be created.', 'YES');
+    if(!ok) return;
     const copy = JSON.parse(JSON.stringify(entry));
     copy.id = uuid();
-    copy.assetNumber = await nextAssetNumber(copy.location, copy.category);
+    copy.assetNumber = await nextAssetNumber();
     copy.lastUpdated = nowISO(); copy.createdAt = nowISO();
     await idbPut('assets', copy);
     state.assets.push(copy);
@@ -2128,8 +2200,10 @@ function bindViewEvents(){
     const ok = await askConfirm('Delete this entry?', `Remove ${entry.qty} × ${entry.condition} from ${entry.assetNumber}.`);
     if(!ok) return;
     await idbDelete('assets', id);
-    state.assets = state.assets.filter(a=>a.id!==id);
+    const remaining = state.assets.filter(a=>a.id!==id);
+    state.assets = remaining;
     await logHistory('deleted', entry);
+    moveAssetImageToDeletedFolder(entry, remaining);
     showToast('Entry deleted.','info');
     render();
   }));
@@ -2196,9 +2270,10 @@ function bindViewEvents(){
       state.editing.imageId = null; state.editing.imageCapturedAt = null;
       readFormIntoEditing(); refreshImagePreview();
     };
+    const urlCommitHandler = ()=>{ urlHandler(); reclaimImageFromDeletedFolder(); };
     urlInput.addEventListener('input', debounce(urlHandler, 250));
-    urlInput.addEventListener('change', urlHandler);
-    urlInput.addEventListener('keydown', (ev)=>{ if(ev.key==='Enter'){ ev.preventDefault(); urlHandler(); showToast('Synced.', 'info'); } });
+    urlInput.addEventListener('change', urlCommitHandler);
+    urlInput.addEventListener('keydown', (ev)=>{ if(ev.key==='Enter'){ ev.preventDefault(); urlCommitHandler(); showToast('Synced.', 'info'); } });
   }
   const fileInput = document.getElementById('f-image-file');
   if(fileInput){
@@ -2916,14 +2991,17 @@ async function importAllData(e){
     const metaVersion = data.meta && data.meta.version ? data.meta.version : '1.1';
     const metaChangelog = data.meta && data.meta.changelog ? data.meta.changelog : DEFAULT_CHANGELOG;
     await idbPut('meta', { key:'version', version: metaVersion, changelog: metaChangelog });
-    // rebuild counters from imported asset numbers so future numbering doesn't collide
+    // rebuild counters from imported asset numbers so future numbering doesn't
+    // collide — Asset Number format is YY#### (2-digit year + 4-digit
+    // sequential), independent of location/category.
     const counters = { key:'counters', values:{} };
     data.assets.forEach(a=>{
-      const parts = (a.assetNumber||'').split('-');
-      if(parts.length===3){
-        const prefix = parts[0]+'-'+parts[1]+'-';
-        const n = parseInt(parts[2],10)||0;
-        counters.values[prefix] = Math.max(counters.values[prefix]||0, n);
+      const m = (a.assetNumber||'').match(/^(\d{2})(\d{4})$/);
+      if(m){
+        const yearKey = `YEAR-${m[1]}`;
+        const n = parseInt(m[2],10);
+        const prevMax = counters.values[yearKey];
+        counters.values[yearKey] = (prevMax===undefined) ? n : Math.max(prevMax, n);
       }
     });
     await idbPut('meta', counters);
@@ -3093,7 +3171,7 @@ async function commitExcelImport(){
     const cat = await ensureCategory(row.category);
     const loc = await ensureLocation(row.location);
     if(!cat || !loc) continue;
-    const assetNumber = await nextAssetNumber(loc.name, cat.name);
+    const assetNumber = await nextAssetNumber();
     const nowIso = nowISO();
     let imageSrc = '', remarks = row.remarks;
     if(row.imageSrc){
@@ -3133,27 +3211,23 @@ async function renameLocationPrompt(oldName){
   }
   const affected = state.assets.filter(a=>a.location===oldName);
   const msg = affected.length
-    ? `${affected.length} record(s) currently use this location. Their Asset Numbers will be regenerated to reflect the new name — the OLD Asset Number stays in History for audit, and quantities are unaffected.`
+    ? `${affected.length} record(s) currently use this location and will be updated to the new name. Asset Numbers are permanent and never change on a rename or move.`
     : `No current records use this location — the rename applies immediately.`;
   const ok = await askConfirm(`Rename "${oldName}" to "${input}"?`, msg);
   if(!ok) return;
 
   const oldCode = loc.code;
-  const ops = affected.map(a=>({ id:a.id, assetNumber:a.assetNumber, location:a.location, category:a.category }));
+  const ops = affected.map(a=>({ id:a.id, location:a.location }));
   loc.name = input; loc.code = deriveLocationCode(input);
   await saveLocations();
 
   for(const row of affected){
-    const oldNum = row.assetNumber;
-    const newNum = await nextAssetNumber(input, row.category);
     row.location = input;
-    row.assetNumber = newNum || oldNum;
     row.lastUpdated = nowISO();
     await idbPut('assets', row);
-    await logHistory('renumbered', Object.assign({}, row, { assetNumber: oldNum, notes: (row.notes?row.notes+' — ':'')+`Renumbered from ${oldNum} (location renamed "${oldName}" \u2192 "${input}")` }));
   }
   lastBulkUndo = { label:`Rename location "${oldName}" \u2192 "${input}"`, ops, renameRevert:{ type:'location', oldName, newName:input, oldCode, newCode:loc.code } };
-  showToast(`Renamed to "${input}". ${affected.length} Asset Number(s) regenerated.`, 'info');
+  showToast(`Renamed to "${input}". ${affected.length} record(s) updated.`, 'info');
   render();
 }
 async function deleteLocationPrompt(name){
@@ -3176,27 +3250,23 @@ async function renameCategoryPrompt(oldName){
   }
   const affected = state.assets.filter(a=>a.category===oldName);
   const msg = affected.length
-    ? `${affected.length} record(s) currently use this category. Their Asset Numbers will be regenerated to reflect the new name — the OLD Asset Number stays in History for audit, and quantities are unaffected.`
+    ? `${affected.length} record(s) currently use this category and will be updated to the new name. Asset Numbers are permanent and never change on a rename or move.`
     : `No current records use this category — the rename applies immediately.`;
   const ok = await askConfirm(`Rename "${oldName}" to "${input}"?`, msg);
   if(!ok) return;
 
   const oldCode = cat.code;
-  const ops = affected.map(a=>({ id:a.id, assetNumber:a.assetNumber, location:a.location, category:a.category }));
+  const ops = affected.map(a=>({ id:a.id, category:a.category }));
   cat.name = input; cat.code = deriveCategoryCode(input);
   await saveCategories();
 
   for(const row of affected){
-    const oldNum = row.assetNumber;
-    const newNum = await nextAssetNumber(row.location, input);
     row.category = input;
-    row.assetNumber = newNum || oldNum;
     row.lastUpdated = nowISO();
     await idbPut('assets', row);
-    await logHistory('renumbered', Object.assign({}, row, { assetNumber: oldNum, notes: (row.notes?row.notes+' — ':'')+`Renumbered from ${oldNum} (category renamed "${oldName}" \u2192 "${input}")` }));
   }
   lastBulkUndo = { label:`Rename category "${oldName}" \u2192 "${input}"`, ops, renameRevert:{ type:'category', oldName, newName:input, oldCode, newCode:cat.code } };
-  showToast(`Renamed to "${input}". ${affected.length} Asset Number(s) regenerated.`, 'info');
+  showToast(`Renamed to "${input}". ${affected.length} record(s) updated.`, 'info');
   render();
 }
 async function deleteCategoryPrompt(name){
@@ -3222,7 +3292,12 @@ async function undoLastBulkChange(){
   for(const op of u.ops){
     const row = state.assets.find(a=>a.id===op.id);
     if(!row) continue;
-    row.assetNumber = op.assetNumber; row.location = op.location; row.category = op.category;
+    // Only restore the fields this particular bulk op actually changed — a
+    // rename-undo op only carries {id, location} or {id, category}; the
+    // bulk-move/recategorize op below carries assetNumber+location+category.
+    if('assetNumber' in op) row.assetNumber = op.assetNumber;
+    if('location' in op) row.location = op.location;
+    if('category' in op) row.category = op.category;
     row.lastUpdated = nowISO();
     await idbPut('assets', row);
   }
@@ -3258,15 +3333,13 @@ async function commitBulkPicker(){
     if(kind==='category' && newVal===rep.category) continue;
     const newLocation = kind==='location' ? newVal : rep.location;
     const newCategory = kind==='category' ? newVal : rep.category;
-    const newNumber = await nextAssetNumber(newLocation, newCategory);
     for(const row of rows){
-      const oldNumber = row.assetNumber, oldLoc = row.location, oldCat = row.category;
-      row.assetNumber = newNumber || oldNumber;
+      const oldLoc = row.location, oldCat = row.category;
       row.location = newLocation; row.category = newCategory;
       row.lastUpdated = nowISO();
       await idbPut('assets', row);
-      await logHistory(kind==='location'?'moved':'recategorized', Object.assign({}, row, { assetNumber: oldNumber }));
-      ops.push({ id: row.id, assetNumber: oldNumber, location: oldLoc, category: oldCat });
+      await logHistory(kind==='location'?'moved':'recategorized', row);
+      ops.push({ id: row.id, location: oldLoc, category: oldCat });
       touchedRows++;
     }
   }
@@ -3287,7 +3360,9 @@ async function bulkDeleteSelected(){
     await idbDelete('assets', row.id);
     await logHistory('deleted', row);
   }
-  state.assets = state.assets.filter(a=>!groupKeys.includes(a.assetNumber));
+  const remaining = state.assets.filter(a=>!groupKeys.includes(a.assetNumber));
+  state.assets = remaining;
+  rows.forEach(row=>moveAssetImageToDeletedFolder(row, remaining));
   state.selectMode = false; state.selectedGroups = new Set();
   render();
   showToast(`Deleted ${rows.length} record(s).`,'info');
@@ -3295,10 +3370,12 @@ async function bulkDeleteSelected(){
 async function deleteAllRecords(){
   if(!isAdminSession()){ showToast('Only the Administrator account can delete all records.','error'); return; }
   if(!state.assets.length){ showToast('There are no records to delete.','info'); return; }
-  const typed = prompt(`This permanently deletes all ${state.assets.length} current inventory record(s). History is kept for audit and is not affected.\n\nType DELETE to confirm:`);
+  const typed = prompt(`This permanently deletes all ${state.assets.length} current inventory record(s). History is kept for audit and is not affected. Any Drive-hosted photos are moved to the "Items Deleted" folder, not deleted.\n\nType DELETE to confirm:`);
   if(typed !== 'DELETE'){ showToast('Delete All cancelled.','info'); return; }
-  for(const a of state.assets){ await idbDelete('assets', a.id); await logHistory('deleted', a); }
+  const deletedRows = state.assets.slice();
+  for(const a of deletedRows){ await idbDelete('assets', a.id); await logHistory('deleted', a); }
   state.assets = [];
+  deletedRows.forEach(row=>moveAssetImageToDeletedFolder(row, []));
   showToast('All records deleted.','info');
   navigateTo('dashboard');
 }
@@ -4054,7 +4131,7 @@ async function seedIfEmpty(){
 
   const nowIso = nowISO();
   for(const def of seedDefs){
-    const assetNumber = await nextAssetNumber(def.location, def.category);
+    const assetNumber = await nextAssetNumber();
     const entry = {
       id: uuid(), assetNumber, name: def.name, category: def.category, location: def.location,
       qty: def.qty, condition: def.condition, purchasePrice: def.price,
