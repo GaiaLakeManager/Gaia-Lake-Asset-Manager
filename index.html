@@ -174,7 +174,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.7</span>
+      <span id="sidebar-version">v4.8</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -233,7 +233,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.7</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.8</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -773,26 +773,31 @@ async function handleMobileImageUpload(event){
   }
 }
 async function clearMobileImage(){
-  // Only ever delete from Drive if THIS feature owns the file (imageId is our
+  // Only ever move-from-Drive if THIS feature owns the file (imageId is our
   // own marker) — a Method B-pasted URL with no imageId is someone else's/
-  // shared file and Clear must never delete it, only unlink it locally.
+  // shared file and Clear must never touch it, only unlink it locally.
   const existingFileId = state.editing.imageId ? extractDriveFileId(state.editing.imageSrc) : null;
   const statusEl = document.getElementById('f-image-mobile-status');
   if(existingFileId){
-    const ok = confirm('CRITICAL: This will permanently delete the image from Google Drive and remove the link from this asset. This action cannot be undone. Proceed?');
+    const ok = confirm('CRITICAL: This will remove the image from this asset and move it to the "Items Deleted" folder on Google Drive for the Administrator to review. Proceed?');
     if(!ok) return;
     if(!state.cloud.connected){
       showToast('Sign in to Google Drive in Settings first.', 'error');
       return;
     }
     try{
-      if(statusEl) statusEl.textContent = 'Deleting from Google Drive…';
-      await driveFetchJson(`https://www.googleapis.com/drive/v3/files/${existingFileId}`, { method:'DELETE' });
+      if(statusEl) statusEl.textContent = 'Moving to Items Deleted…';
+      // A reparent (move between folders) only needs Editor access to the
+      // folder — unlike files.delete, it does NOT require owning the file,
+      // so this works even when the photo was originally uploaded by a
+      // different signed-in account (the exact case that threw a 403 here).
+      const deletedFolderId = await getOrCreateDeletedImagesFolderId();
+      await driveFetchJson(`https://www.googleapis.com/drive/v3/files/${existingFileId}?addParents=${deletedFolderId}&removeParents=${DRIVE_IMAGES_FOLDER_ID}&fields=id,parents`, { method:'PATCH' });
     }catch(err){
       // Leave the link/state exactly as-is on failure so the user can retry —
       // silently wiping the link here would orphan a file that's still on Drive.
-      showToast('Could not delete the Drive file: '+err.message, 'error');
-      if(statusEl) statusEl.textContent = 'Delete failed — ' + err.message;
+      showToast('Could not move the Drive file: '+err.message, 'error');
+      if(statusEl) statusEl.textContent = 'Move failed — ' + err.message;
       return;
     }
   }
@@ -949,6 +954,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.8', date: nowISO(), type:'patch', summary:'Fixed a 403 permission error on Method C\'s Clear button: it now moves the photo to the "Items Deleted" Drive folder (same as asset delete) instead of trying to permanently delete it outright, which was failing for anyone who wasn\'t the file\'s original owner.',
+    detail:'Clear (Method C, Mobile Camera) previously called Drive\'s files.delete, which requires owning the file — plain Editor access to the shared folder is not enough. If a photo was originally uploaded from a different signed-in Google account than the one currently clearing it, Drive correctly refused with a 403 ("The user does not have sufficient permissions for this file"), and the app surfaced that raw error instead of recovering. Clear now performs the same reparent (move-between-folders) operation already used when an asset is deleted — moving the file into "Items Deleted" instead of the original ItemsImages folder — which only requires Editor access to the folder, not ownership, so it now works for any signed-in user regardless of who originally uploaded the photo. The confirmation wording was updated to match: it now describes moving the photo to Items Deleted for Administrator review, rather than claiming an irreversible permanent delete that the app was never actually guaranteed to be able to perform.' },
   { version:'4.7', date: nowISO(), type:'major', summary:'New Asset Number format (YY####, permanent and independent of Location/Category), Duplicate Asset confirmation, ascending dropdown order everywhere, a proper picker on Method C (camera or gallery/files), and deleted-asset photos now move to an "Items Deleted" Drive folder instead of vanishing.',
     detail:'Asset Number format changed to YY#### — YY is the current year, #### is a 4-digit sequential counter starting at 0000, assigned once at New Item or Duplicate Asset and never regenerated again. Removed the old coupling to Location/Category entirely: renaming a Location or Category, or moving/recategorizing an asset (including bulk Move/Recategorize), no longer changes its Asset Number — the number is now a permanent identity that survives the asset moving anywhere. Clicking Duplicate Asset (from any list in the app) now shows a confirmation — "You want to create NEW asset? A NEW asset number will be created." with YES/Cancel — before creating the copy with its own fresh number. All dropdowns and pill lists that list Categories or Locations (Settings, the Edit Form, Dashboard filters, Print & Export) are now sorted ascending by name automatically, sourced from a single sort point so new lists stay sorted with no extra work. Method C\'s "Take / Choose Photo" button no longer forces the camera open directly — it now shows the normal picker so a photo can be taken live or chosen from the gallery/files. Deleting an asset (single delete, bulk-selected delete, or Delete All) no longer permanently deletes its Method C-managed Drive photo — the file is moved into a new "Items Deleted" folder instead, for the Administrator to review and clear manually; a still-in-use sibling split/batch row sharing the same photo is detected and skipped. If a Method B pasted Drive link points to a file sitting in Items Deleted, it\'s automatically moved back into ItemsImages to avoid a duplicate copy — note this one only works for Method B\'s manual link paste, since a native file/camera picker has no way to know a photo came from a specific Drive folder; true drag-and-browse selection from within Drive would need a separate Google Picker API integration.' },
   { version:'4.6', date: nowISO(), type:'patch', summary:'Fixed a bug where retaking a photo via Method C would successfully replace the image on Google Drive, but the form kept showing the old picture.',
@@ -1013,6 +1020,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.5'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.6'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.7'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.8'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1052,7 +1060,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.7', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.8', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
