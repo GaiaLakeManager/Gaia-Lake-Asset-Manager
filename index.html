@@ -174,7 +174,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.9</span>
+      <span id="sidebar-version">v4.10</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -233,7 +233,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.9</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.10</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -814,8 +814,10 @@ async function clearMobileImage(){
   state.editing.imageCapturedAt = null;
   const urlInput = document.getElementById('f-image-url');
   if(urlInput) urlInput.value = '';
-  const fileInput = document.getElementById('f-image-mobile');
-  if(fileInput) fileInput.value = '';
+  const cameraInput = document.getElementById('f-image-mobile-camera');
+  if(cameraInput) cameraInput.value = '';
+  const galleryInput = document.getElementById('f-image-mobile-gallery');
+  if(galleryInput) galleryInput.value = '';
   if(statusEl) statusEl.textContent = state.cloud.connected ? 'Compresses to ≤1000px WebP and uploads straight to your Drive folder — no base64 bloat in the saved record.' : 'Sign in to Google Drive in Settings first — this method uploads directly to your shared Drive folder.';
   const clearBtn = document.getElementById('f-image-mobile-clear');
   if(clearBtn) clearBtn.classList.add('hidden');
@@ -962,6 +964,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.10', date: nowISO(), type:'patch', summary:'Method C\'s Take/Choose Photo split into two explicit buttons — Camera and Gallery/Files — so camera access no longer depends on the phone\'s OS picker deciding whether to offer it.',
+    detail:'On Android 13+, Chrome routes a plain image file input (no capture attribute) through Android\'s newer Photo Picker API instead of the classic chooser sheet — and depending on the phone/OEM, that picker sometimes omits the Camera shortcut entirely and opens straight into Google Photos, which is exactly what was being reported on a newer phone while an older phone (still on the classic chooser) kept showing both options. This can\'t be reliably controlled from the app\'s JS once it hands off to the OS picker, so instead of one combined button, Method C now has two dedicated buttons: Camera (its own file input with capture=environment, guaranteed to open the camera on every device) and Gallery / Files (a separate plain file input for picking an existing photo). Both feed into the exact same compress-and-upload pipeline as before, so upload/overwrite/cache-busting behavior is unchanged.' },
   { version:'4.9', date: nowISO(), type:'patch', summary:'Fixed a regression of the v4.6 fix: after a Method C upload, saving the item was silently stripping the cache-busting parameter from the photo link, so the asset showed the old cached photo again right after "Item saved successfully."',
     detail:'This is the same class of bug as v4.6, resurfacing through a different path. convertImageUrl() — which normalizes any Drive link typed or set into the image URL field into a canonical thumbnail URL — runs on every Save (via readFormIntoEditing), not just on manual Method B pastes. It rebuilt the URL from scratch using only the extracted file ID, discarding any other query parameters in the process. Since Method C\'s own upload flow stamps a cache-busting &t= timestamp onto the link it writes into that same field, saving the item immediately after taking a photo ran that freshly-stamped URL back through convertImageUrl() and silently dropped the &t=, reverting the field to the bare (already browser/Drive-cached) URL — even though the actual file on Drive was correctly updated. Fixed by having convertImageUrl() detect and preserve an existing &t= parameter when one is present, instead of only ever emitting a bare id+sz URL. Audited every other call site and construction point for this same URL to confirm this was the only place still capable of dropping it.' },
   { version:'4.8', date: nowISO(), type:'patch', summary:'Fixed a 403 permission error on Method C\'s Clear button: it now moves the photo to the "Items Deleted" Drive folder (same as asset delete) instead of trying to permanently delete it outright, which was failing for anyone who wasn\'t the file\'s original owner.',
@@ -1032,6 +1036,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.7'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.8'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.9'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.10'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1071,7 +1076,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.9', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.10', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -1876,9 +1881,11 @@ function renderStandardForm(e){
         </div>` : adminLockBox('Method B — Cloud URL')}
         <div class="border border-dashed border-[#DCD7C6] rounded-xl p-3 text-center" data-image-capture>
           <p class="text-[11px] font-semibold text-[#8a8471] mb-2">Method C — Mobile Camera (auto-uploads to Drive)</p>
-          <input id="f-image-mobile" type="file" accept="image/*" class="hidden"/>
+          <input id="f-image-mobile-camera" type="file" accept="image/*" capture="environment" class="hidden"/>
+          <input id="f-image-mobile-gallery" type="file" accept="image/*" class="hidden"/>
           <div class="flex items-center justify-center flex-wrap gap-2">
-            <button type="button" id="f-image-mobile-btn" class="px-3 py-2 rounded-lg border border-[#E2DFD3] text-xs font-medium hover:bg-[#F1EEE3] active:bg-[#F1EEE3]">📷 Take / Choose Photo</button>
+            <button type="button" id="f-image-mobile-camera-btn" class="px-3 py-2 rounded-lg border border-[#E2DFD3] text-xs font-medium hover:bg-[#F1EEE3] active:bg-[#F1EEE3]">📷 Camera</button>
+            <button type="button" id="f-image-mobile-gallery-btn" class="px-3 py-2 rounded-lg border border-[#E2DFD3] text-xs font-medium hover:bg-[#F1EEE3] active:bg-[#F1EEE3]">🖼️ Gallery / Files</button>
             <button type="button" id="f-image-mobile-clear" class="${e.imageId?'':'hidden'} px-3 py-2 rounded-lg border border-red-200 text-red-500 text-xs font-medium hover:bg-red-50 active:bg-red-50">Clear</button>
           </div>
           <p id="f-image-mobile-status" class="text-[10px] text-[#a89f85] mt-1.5 leading-snug min-h-[2.4em]">${state.cloud.connected ? 'Compresses to ≤1000px WebP and uploads straight to your Drive folder — no base64 bloat in the saved record.' : 'Sign in to Google Drive in Settings first — this method uploads directly to your shared Drive folder.'}</p>
@@ -2305,10 +2312,14 @@ function bindViewEvents(){
       refreshImagePreview();
     });
   }
-  const mobileFileInput = document.getElementById('f-image-mobile');
-  if(mobileFileInput) mobileFileInput.addEventListener('change', handleMobileImageUpload);
-  const mobileBtn = document.getElementById('f-image-mobile-btn');
-  if(mobileBtn) mobileBtn.addEventListener('click', ()=> mobileFileInput && mobileFileInput.click());
+  const mobileCameraInput = document.getElementById('f-image-mobile-camera');
+  if(mobileCameraInput) mobileCameraInput.addEventListener('change', handleMobileImageUpload);
+  const mobileCameraBtn = document.getElementById('f-image-mobile-camera-btn');
+  if(mobileCameraBtn) mobileCameraBtn.addEventListener('click', ()=> mobileCameraInput && mobileCameraInput.click());
+  const mobileGalleryInput = document.getElementById('f-image-mobile-gallery');
+  if(mobileGalleryInput) mobileGalleryInput.addEventListener('change', handleMobileImageUpload);
+  const mobileGalleryBtn = document.getElementById('f-image-mobile-gallery-btn');
+  if(mobileGalleryBtn) mobileGalleryBtn.addEventListener('click', ()=> mobileGalleryInput && mobileGalleryInput.click());
   const mobileClearBtn = document.getElementById('f-image-mobile-clear');
   if(mobileClearBtn) mobileClearBtn.addEventListener('click', clearMobileImage);
   document.querySelectorAll('[data-split-qty]').forEach(inp=>{
