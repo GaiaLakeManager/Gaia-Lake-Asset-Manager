@@ -174,7 +174,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.8</span>
+      <span id="sidebar-version">v4.9</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -233,7 +233,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.8</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.9</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -556,7 +556,15 @@ function convertImageUrl(url){
   for(const re of patterns){
     const m = url.match(re);
     if(m && m[1]){
-      return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000`;
+      // Preserve an existing cache-busting &t= param if the URL already has
+      // one (Method C stamps one on every upload/overwrite) — rebuilding the
+      // URL from scratch here without this was silently dropping it on every
+      // Save (readFormIntoEditing runs every URL through this normalizer),
+      // which reverted the field back to a stale, browser-cached bare URL
+      // even though the actual Drive file content was correctly updated.
+      const tMatch = url.match(/[?&]t=(\d+)/);
+      const cacheBust = tMatch ? `&t=${tMatch[1]}` : '';
+      return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000${cacheBust}`;
     }
   }
   return url;
@@ -954,6 +962,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.9', date: nowISO(), type:'patch', summary:'Fixed a regression of the v4.6 fix: after a Method C upload, saving the item was silently stripping the cache-busting parameter from the photo link, so the asset showed the old cached photo again right after "Item saved successfully."',
+    detail:'This is the same class of bug as v4.6, resurfacing through a different path. convertImageUrl() — which normalizes any Drive link typed or set into the image URL field into a canonical thumbnail URL — runs on every Save (via readFormIntoEditing), not just on manual Method B pastes. It rebuilt the URL from scratch using only the extracted file ID, discarding any other query parameters in the process. Since Method C\'s own upload flow stamps a cache-busting &t= timestamp onto the link it writes into that same field, saving the item immediately after taking a photo ran that freshly-stamped URL back through convertImageUrl() and silently dropped the &t=, reverting the field to the bare (already browser/Drive-cached) URL — even though the actual file on Drive was correctly updated. Fixed by having convertImageUrl() detect and preserve an existing &t= parameter when one is present, instead of only ever emitting a bare id+sz URL. Audited every other call site and construction point for this same URL to confirm this was the only place still capable of dropping it.' },
   { version:'4.8', date: nowISO(), type:'patch', summary:'Fixed a 403 permission error on Method C\'s Clear button: it now moves the photo to the "Items Deleted" Drive folder (same as asset delete) instead of trying to permanently delete it outright, which was failing for anyone who wasn\'t the file\'s original owner.',
     detail:'Clear (Method C, Mobile Camera) previously called Drive\'s files.delete, which requires owning the file — plain Editor access to the shared folder is not enough. If a photo was originally uploaded from a different signed-in Google account than the one currently clearing it, Drive correctly refused with a 403 ("The user does not have sufficient permissions for this file"), and the app surfaced that raw error instead of recovering. Clear now performs the same reparent (move-between-folders) operation already used when an asset is deleted — moving the file into "Items Deleted" instead of the original ItemsImages folder — which only requires Editor access to the folder, not ownership, so it now works for any signed-in user regardless of who originally uploaded the photo. The confirmation wording was updated to match: it now describes moving the photo to Items Deleted for Administrator review, rather than claiming an irreversible permanent delete that the app was never actually guaranteed to be able to perform.' },
   { version:'4.7', date: nowISO(), type:'major', summary:'New Asset Number format (YY####, permanent and independent of Location/Category), Duplicate Asset confirmation, ascending dropdown order everywhere, a proper picker on Method C (camera or gallery/files), and deleted-asset photos now move to an "Items Deleted" Drive folder instead of vanishing.',
@@ -1021,6 +1031,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.6'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.7'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.8'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.9'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1060,7 +1071,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.8', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.9', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
