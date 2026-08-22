@@ -176,7 +176,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.18</span>
+      <span id="sidebar-version">v4.19</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -203,7 +203,7 @@ or redistribution is strictly prohibited.
       <nav id="mobile-nav" class="space-y-1"></nav>
       <div class="pt-3 mt-2 border-t sidebar-border" id="cloud-sidebar-slot-mobile"></div>
       <div class="pt-3 mt-2 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between">
-        <span id="mobile-sidebar-version">v4.18</span>
+        <span id="mobile-sidebar-version">v4.19</span>
         <span class="grip-dot theme-bg"></span>
       </div>
     </div>
@@ -239,7 +239,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.18</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.19</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -416,45 +416,74 @@ function openDB(){
         _db.createObjectStore("meta", { keyPath:"key" });
       }
     };
-    req.onsuccess = (e)=>{ db = e.target.result; resolve(db); };
+    req.onsuccess = (e)=>{
+      db = e.target.result;
+      // Mobile browsers (far more aggressively than desktop — under memory
+      // pressure, or after the tab sits backgrounded mid-sync) can force-close
+      // an open IndexedDB connection out from under the page at any time, with
+      // no warning beyond every subsequent transaction throwing "The database
+      // connection is closing." Null out the cached handle when that happens
+      // so withStore() below knows to transparently reopen rather than keep
+      // hammering a dead connection.
+      db.onclose = ()=>{ db = null; };
+      resolve(db);
+    };
     req.onerror = (e)=> reject(e.target.error);
   });
 }
-
+function isClosingConnectionError(err){
+  return !!err && (err.name === 'InvalidStateError' || /connection is closing/i.test(err.message||''));
+}
 function tx(storeName, mode){
   return db.transaction(storeName, mode).objectStore(storeName);
 }
+/* Every idbXxx() below routes through here instead of calling tx() directly.
+   If the cached connection was already closed (db is null) or gets closed out
+   from under us right as we try to start a transaction, this reopens it and
+   retries exactly once — silently, since a stale connection is a recoverable
+   condition the app can handle on its own, not something that needs to scare
+   the user with a red error toast (which is what was happening before). */
+async function withStore(storeName, mode, run){
+  if(!db){ db = await openDB(); }
+  try{
+    return await new Promise((resolve,reject)=> run(tx(storeName, mode), resolve, reject));
+  }catch(err){
+    if(!isClosingConnectionError(err)) throw err;
+    db = await openDB();
+    return await new Promise((resolve,reject)=> run(tx(storeName, mode), resolve, reject));
+  }
+}
 function idbGetAll(storeName){
-  return new Promise((resolve,reject)=>{
-    const req = tx(storeName,"readonly").getAll();
+  return withStore(storeName, "readonly", (store,resolve,reject)=>{
+    const req = store.getAll();
     req.onsuccess = ()=>resolve(req.result || []);
     req.onerror = (e)=>reject(e.target.error);
   });
 }
 function idbGet(storeName,key){
-  return new Promise((resolve,reject)=>{
-    const req = tx(storeName,"readonly").get(key);
+  return withStore(storeName, "readonly", (store,resolve,reject)=>{
+    const req = store.get(key);
     req.onsuccess = ()=>resolve(req.result || null);
     req.onerror = (e)=>reject(e.target.error);
   });
 }
 function idbPut(storeName,value){
-  return new Promise((resolve,reject)=>{
-    const req = tx(storeName,"readwrite").put(value);
+  return withStore(storeName, "readwrite", (store,resolve,reject)=>{
+    const req = store.put(value);
     req.onsuccess = ()=>{ resolve(value); scheduleCloudPush(storeName, value); };
     req.onerror = (e)=>reject(e.target.error);
   });
 }
 function idbDelete(storeName,key){
-  return new Promise((resolve,reject)=>{
-    const req = tx(storeName,"readwrite").delete(key);
+  return withStore(storeName, "readwrite", (store,resolve,reject)=>{
+    const req = store.delete(key);
     req.onsuccess = ()=>{ resolve(true); scheduleCloudPush(storeName); };
     req.onerror = (e)=>reject(e.target.error);
   });
 }
 function idbClear(storeName){
-  return new Promise((resolve,reject)=>{
-    const req = tx(storeName,"readwrite").clear();
+  return withStore(storeName, "readwrite", (store,resolve,reject)=>{
+    const req = store.clear();
     req.onsuccess = ()=>{ resolve(true); scheduleCloudPush(storeName); };
     req.onerror = (e)=>reject(e.target.error);
   });
@@ -971,6 +1000,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.19', date: nowISO(), type:'patch', summary:'Fixed a mobile-only "database connection is closing" error shown right after signing in to Google Drive.',
+    detail:'Signing in pulls the full inventory from Drive and writes every record into the local database in one continuous burst — for a ~200-item inventory, that\'s roughly 200 database writes back to back. The app held a single database connection opened once at startup with no way to recover if it was ever closed. Mobile browsers are far more aggressive than desktop about force-closing an idle or backgrounded IndexedDB connection under memory pressure, and a long, uninterrupted burst of writes right after opening the app is exactly the kind of moment that can trigger it — hence why this only ever showed up on phones, never on PC. It was harmless in the sense that the write which failed simply hadn\'t landed locally yet, but showed a scary red error and depended on the user retrying to fully catch up. Fixed by having the app notice when its database connection has been closed out from under it and transparently reopen and retry, once, before giving up — silently, since this is a normal recoverable condition on mobile rather than something that needs to alarm anyone.' },
   { version:'4.18', date: nowISO(), type:'patch', summary:'Fixed Export as Excel/CSV silently doing nothing when an asset\'s photo was stored inline rather than as a Drive link, and added the version number to the mobile hamburger menu (desktop sidebar already showed it).',
     detail:'exportAssetsToExcel()/exportAssetsToCsv() had no error handling at all. Excel enforces a hard ~32,767-character limit per spreadsheet cell, and the SheetJS library throws on anything longer; any asset whose photo happened to be stored as a raw embedded image (from before it had a Drive connection) rather than a short Drive link would blow past that limit and throw — with nothing catching it, the whole export died with zero feedback, which is why clicking the button appeared to do nothing at all. Fixed two ways: embedded photos now export as a short readable note ("Photo saved in-app — not included in spreadsheet export") instead of the raw data, since dumping a giant base64 blob into a cell was never useful even when it didn\'t crash; and both export functions are now wrapped in proper error handling, so any future failure shows a clear error toast instead of failing silently. Also added the app version number to the bottom of the mobile hamburger menu, matching the desktop sidebar (which has always shown it there) — it was previously only visible on mobile by scrolling all the way to the page footer.' },
   { version:'4.17', date: nowISO(), type:'patch', summary:'Replaced the Tailwind Play CDN script with a small pre-built, minified stylesheet — faster load, no more production-mode console warning.',
@@ -1068,6 +1099,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.16'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.17'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.18'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.19'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1107,7 +1139,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.18', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.19', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
