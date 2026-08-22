@@ -174,7 +174,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.10</span>
+      <span id="sidebar-version">v4.11</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -233,7 +233,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.10</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.11</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -964,6 +964,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.11', date: nowISO(), type:'patch', summary:'Fixed a cloud-sync gap where an edit could get silently queued and never actually pushed to Drive with no error shown; added a Go-Live Reset in the Danger Zone.',
+    detail:'scheduleActiveCloudPush()/scheduleHistoryCloudPush() correctly defer a push (marking it "dirty") whenever a pull is mid-flight or sync isn\'t ready yet — but nothing was guaranteed to retry a deferred push afterward except the next sign-in or a manual Sync Now click; the 20-second poll only ever checked for incoming remote changes. If a save happened to land in that window, it could sit queued indefinitely with the Drive file\'s timestamp never updating and no error toast, since nothing had actually failed — it was just waiting on a retry that never came. pollCloud() now also flushes any pending dirty push/history-push on every 20-second tick, so a deferred write can no longer get silently stuck. Added console logging around every push gate/attempt/result for easier diagnosis going forward. Also added a Go-Live Reset button to Settings → Danger Zone (Administrator only): unlike Delete All Records (which intentionally keeps History for audit), this wipes assets AND History AND resets the Asset Number counter back to the start, then immediately force-pushes the clean state to both Drive files — for starting a fresh production launch with zero test data on all devices at once.' },
   { version:'4.10', date: nowISO(), type:'patch', summary:'Method C\'s Take/Choose Photo split into two explicit buttons — Camera and Gallery/Files — so camera access no longer depends on the phone\'s OS picker deciding whether to offer it.',
     detail:'On Android 13+, Chrome routes a plain image file input (no capture attribute) through Android\'s newer Photo Picker API instead of the classic chooser sheet — and depending on the phone/OEM, that picker sometimes omits the Camera shortcut entirely and opens straight into Google Photos, which is exactly what was being reported on a newer phone while an older phone (still on the classic chooser) kept showing both options. This can\'t be reliably controlled from the app\'s JS once it hands off to the OS picker, so instead of one combined button, Method C now has two dedicated buttons: Camera (its own file input with capture=environment, guaranteed to open the camera on every device) and Gallery / Files (a separate plain file input for picking an existing photo). Both feed into the exact same compress-and-upload pipeline as before, so upload/overwrite/cache-busting behavior is unchanged.' },
   { version:'4.9', date: nowISO(), type:'patch', summary:'Fixed a regression of the v4.6 fix: after a Method C upload, saving the item was silently stripping the cache-busting parameter from the photo link, so the asset showed the old cached photo again right after "Item saved successfully."',
@@ -1037,6 +1039,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.8'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.9'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.10'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.11'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1076,7 +1079,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.10', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.11', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -2710,7 +2713,7 @@ function renderSettingsView(){
         <button id="s-cloud-sync-now" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] ${state.cloud.connected?'':'hidden'}" ${state.cloud.connected?'':'disabled'}>Sync Now</button>
         ${state.cloud.userEmail ? `<span class="text-xs text-[#8a8471]">Signed in as ${escapeHtml(state.cloud.userEmail)}</span>` : ''}
       </div>
-      <p class="text-[11px] text-[#a89f85]">${state.cloud.lastSync ? 'Last synced ' + fmtDateTime(new Date(state.cloud.lastSync)) : 'Not yet synced with the shared folder.'}</p>
+      <p class="text-[11px] text-[#a89f85]">${state.cloud.lastSync ? 'Last synced ' + fmtDateTime(new Date(state.cloud.lastSync)) : 'Not yet synced with the shared folder.'}${state.cloud.dirty ? ' · Changes pending push…' : ''}${state.cloud.lastPushError ? ` · <span class="text-red-500">Last push error: ${escapeHtml(state.cloud.lastPushError)}</span>` : ''}</p>
     </section>` : adminLockNotice('Cloud Connection Workspace')}
 
     ${admin ? `
@@ -2749,6 +2752,10 @@ function renderSettingsView(){
       <p class="font-display font-semibold text-red-600 flex items-center gap-2">${iconAlertTriangle()} Danger Zone</p>
       <p class="text-xs text-[#8a8471]">Useful right before a fresh bulk import. This clears all current inventory records — History is kept for audit and is not affected.</p>
       <button id="s-delete-all" class="px-4 py-2.5 rounded-xl border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50">Delete All Records</button>
+      <div class="border-t border-red-100 pt-3 mt-1">
+        <p class="text-xs text-[#8a8471] mb-2">One-time go-live reset: wipes ALL current records <strong>and</strong> History, resets the Asset Number counter to ${new Date().getFullYear().toString().slice(-2)}0000, and immediately pushes the clean, empty state to both Drive files so every device starts from the same blank slate.</p>
+        <button id="s-golive-reset" class="px-4 py-2.5 rounded-xl border border-red-400 bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100">Go-Live Reset (Wipe Everything &amp; Restart Numbering)</button>
+      </div>
     </section>` : adminLockNotice('Danger Zone')}
 
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-3">
@@ -2941,6 +2948,7 @@ function bindSettingsEvents(){
   bind('s-excel-export','click', exportAssetsToExcel);
   bind('s-csv-export','click', exportAssetsToCsv);
   bind('s-delete-all','click', deleteAllRecords);
+  bind('s-golive-reset','click', goLiveReset);
 
   bind('s-company-meta-toggle','click', async ()=>{
     if(companyMetaEditing){
@@ -3409,6 +3417,30 @@ async function deleteAllRecords(){
   showToast('All records deleted.','info');
   navigateTo('dashboard');
 }
+/* One-time go-live reset: unlike Delete All Records (which intentionally keeps
+   History for audit), this wipes assets AND History AND the Asset Number
+   counter, then force-pushes the clean state to both Drive files right away
+   — so the shared file everyone else's devices pull from is clean immediately,
+   not just after the next debounced write. Photos already on Drive from test
+   assets are moved to "Items Deleted" the same way Delete All Records does. */
+async function goLiveReset(){
+  if(!isAdminSession()){ showToast('Only the Administrator account can run a go-live reset.','error'); return; }
+  const typed = prompt(`GO-LIVE RESET: this permanently wipes ALL ${state.assets.length} current record(s), the entire History log, and resets the Asset Number counter back to the start.\n\nThis cannot be undone. Type RESET to confirm:`);
+  if(typed !== 'RESET'){ showToast('Go-live reset cancelled.','info'); return; }
+  const deletedRows = state.assets.slice();
+  for(const a of deletedRows){ await idbDelete('assets', a.id); }
+  await idbClear('history');
+  await idbPut('meta', { key:'counters', values:{} });
+  state.assets = [];
+  state.history = [];
+  deletedRows.forEach(row=>moveAssetImageToDeletedFolder(row, []));
+  if(state.cloud.connected){
+    if(state.cloud.fileId) await pushToCloud();
+    if(state.cloud.historyFileId) await pushHistoryToCloud();
+  }
+  showToast('Go-live reset complete — starting fresh at asset number ' + await peekAssetNumber() + '.', 'info');
+  navigateTo('dashboard');
+}
 function assetExportRows(){
   return state.assets.map(a=>({
     'Asset Number': a.assetNumber, 'Asset Name': a.name, 'Category': a.category, 'Sub-category': a.subCategory||'',
@@ -3792,19 +3824,28 @@ function scheduleCloudPush(storeName, value){
   scheduleActiveCloudPush();
 }
 function scheduleActiveCloudPush(){
-  if(!state.cloud.connected || !state.cloud.fileId || state.cloud.applyingRemote || !state.cloud.syncReady){ state.cloud.dirty = true; return; }
+  if(!state.cloud.connected || !state.cloud.fileId || state.cloud.applyingRemote || !state.cloud.syncReady){
+    state.cloud.dirty = true;
+    console.log('[cloud] active push deferred — connected:'+state.cloud.connected+' fileId:'+!!state.cloud.fileId+' applyingRemote:'+state.cloud.applyingRemote+' syncReady:'+state.cloud.syncReady+' (queued, will retry on next poll/manual sync/login)');
+    return;
+  }
   clearTimeout(cloudPushTimer);
   cloudPushTimer = setTimeout(()=>{ pushToCloud(); }, 500);
 }
 function scheduleHistoryCloudPush(){
   if(!state.cloud.connected || !state.cloud.historyLoaded || !state.cloud.historyFileId || state.cloud.applyingRemote || !state.cloud.historySyncReady){
-    state.cloud.historyDirty = true; return;
+    state.cloud.historyDirty = true;
+    console.log('[cloud] history push deferred — connected:'+state.cloud.connected+' historyLoaded:'+state.cloud.historyLoaded+' historyFileId:'+!!state.cloud.historyFileId+' applyingRemote:'+state.cloud.applyingRemote+' historySyncReady:'+state.cloud.historySyncReady);
+    return;
   }
   clearTimeout(historyPushTimer);
   historyPushTimer = setTimeout(()=>{ pushHistoryToCloud(); }, 500);
 }
 async function pushToCloud(){
-  if(!state.cloud.connected || !state.cloud.fileId || state.cloud.applyingRemote || !state.cloud.syncReady) return;
+  if(!state.cloud.connected || !state.cloud.fileId || state.cloud.applyingRemote || !state.cloud.syncReady){
+    console.log('[cloud] pushToCloud aborted at entry gate — will remain dirty until next retry.');
+    return;
+  }
   try{
     state.cloud.syncing = true; setCloudStatus('busy','Syncing…'); renderCloudSidebar();
     const payload = await buildActivePayload();
@@ -3812,10 +3853,14 @@ async function pushToCloud(){
     state.cloud.lastRemoteModified = updated.modifiedTime;
     state.cloud.lastSync = nowISO();
     state.cloud.dirty = false;
+    state.cloud.lastPushError = null;
     setCloudStatus('on','Synced');
+    console.log('[cloud] pushed to Drive successfully at '+state.cloud.lastSync+' (assets:'+payload.assets.length+')');
   }catch(err){
     setCloudStatus('off','Sync error');
+    state.cloud.lastPushError = err.message;
     showToast('Cloud sync failed: '+err.message,'error');
+    console.error('[cloud] pushToCloud failed:', err);
   } finally {
     state.cloud.syncing = false; renderCloudSidebar();
   }
@@ -3885,6 +3930,14 @@ async function pollCloud(){
     // Transient poll errors (e.g. expired token mid-refresh) are silent;
     // the next successful poll or manual Sync Now will recover.
   }
+  // Watchdog: a push can get deferred (dirty=true) if it was attempted while a
+  // pull was mid-flight or before syncReady flipped true, and nothing else was
+  // guaranteed to retry it before this fix — flush anything still queued on
+  // every poll tick so an edit can never get silently stuck un-synced.
+  try{
+    if(state.cloud.dirty && state.cloud.syncReady && !state.cloud.applyingRemote) await pushToCloud();
+    if(state.cloud.historyLoaded && state.cloud.historyDirty && state.cloud.historySyncReady && !state.cloud.applyingRemote) await pushHistoryToCloud();
+  }catch(err){ /* pushToCloud/pushHistoryToCloud already surface their own errors */ }
 }
 async function cloudManualSync(){
   if(!state.cloud.connected){ showToast('Sign in to Google Drive first.','error'); return; }
