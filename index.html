@@ -70,6 +70,7 @@ or redistribution is strictly prohibited.
   .badge-repair{ background:#FF8000; color:#ffffff; }
   .badge-discarded{ background:#FEE2E2; color:#991B1B; }
   .badge-missing{ background:#E5E7EB; color:#374151; }
+  .badge-unusable{ background:#0000ff; color:#ffffff; }
   #a4-preview{ width:210mm; min-height:297mm; box-shadow:0 4px 24px rgba(0,0,0,0.12); }
   @media (max-width:1024px){ #a4-preview{ width:100%; min-height:auto; } }
   @media print{
@@ -134,6 +135,7 @@ or redistribution is strictly prohibited.
   #shell.dark .badge-repair{ background:#7c2d12; color:#fdba74; }
   #shell.dark .badge-discarded{ background:#7f1d1d; color:#fca5a5; }
   #shell.dark .badge-missing{ background:#374151; color:#d1d5db; }
+  #shell.dark .badge-unusable{ background:#0000ff; color:#ffffff; }
   .stat-card-active{ background:#EAE5D2; border-color:#C9C3AC; }
   #shell.dark .stat-card-active{ background:#332d1c !important; border-color:#5c4f2e !important; }
   /* Undo/attention banner (Settings) — same pale-bg-with-dark-text pattern as
@@ -174,7 +176,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.11</span>
+      <span id="sidebar-version">v4.16</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -233,7 +235,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.11</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.16</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -370,6 +372,7 @@ const CONDITIONS = [
   { key:"In Repair", cls:"badge-repair",    dot:"#FF8000" },
   { key:"Discarded", cls:"badge-discarded", dot:"#dc2626" },
   { key:"Missing",   cls:"badge-missing",   dot:"#6b7280" },
+  { key:"Unusable",  cls:"badge-unusable",  dot:"#0000ff" },
 ];
 
 function locByCode(c){ return LOCATIONS.find(l=>l.code===c); }
@@ -964,6 +967,16 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.16', date: nowISO(), type:'patch', summary:'Fixed the new photo lightbox not opening on click (cursor changed, but nothing happened).',
+    detail:'v4.15 wired each photo\'s click-to-enlarge using an inline onclick="..." HTML attribute. The whole app runs inside its own self-contained function wrapper (so its internal names don\'t leak into or collide with anything else on the page), but inline onclick attributes always run against the page\'s global scope, not that wrapper — so the browser could never actually find the function to call. This failed completely silently (no visible error), which is why the cursor still correctly showed the zoom icon on hover (pure CSS, unaffected) while the click itself did nothing, and right-click → Open image in new tab still worked (a native browser feature with no dependency on the page\'s own code). Fixed by switching to a single delegated click listener registered up front, which stays inside the app\'s own scope and needs no global exposure — every photo now just carries a marker attribute to opt in, and the fix applies uniformly to all four locations from v4.15 (card thumbnail, edit form preview, A4 preview, Print & Export preview).' },
+  { version:'4.15', date: nowISO(), type:'minor', summary:'Click any asset photo to view it full-size, and a new "Unusable" condition (blue) added alongside Usable/Damaged/In Repair/Discarded/Missing.',
+    detail:'Every asset photo shown anywhere in the app — the roster/location group card thumbnail, the Edit Item form\'s image preview, the live A4 print preview panel, and the Print & Export Manifest Preview\'s Photo column — now opens a full-size view in a dark overlay on click (Esc, clicking outside the image, or the × button closes it). Added a new Condition option, "Unusable" (dark blue #0000FF background, white text), alongside the existing five — it appears automatically everywhere Condition is used (Edit Item form, Dashboard condition filters/counts, Print & Export, Excel export, Settings condition reference) since those all already read from the single shared condition list rather than a hardcoded set.' },
+  { version:'4.14', date: nowISO(), type:'minor', summary:'Added a "Has Image" sort option, a Photo column on the on-screen Manifest Preview, and a View PDF with Images preview — all so photo coverage can be checked before printing anything.',
+    detail:'Print & Export → Sort By now has a "Has Image (Images First)" option, which groups every asset with a photo at the top and everything missing one at the bottom (each group keeps its own alphabetical order by name) — makes it easy to see at a glance, or work through, which assets still need a photo taken. The on-screen Manifest Preview table (the live list above the PDF buttons) now shows a small Photo column with either the actual thumbnail or a "No Image" label per row, so photo coverage can be checked instantly without generating any file at all. Added a "View PDF with Images" button next to the existing "PDF with Images" download — opens the same photo-inclusive manifest in a new browser tab for review, without saving anything to disk, mirroring how the plain "View PDF" button already works for the text-only manifest.' },
+  { version:'4.13', date: nowISO(), type:'patch', summary:'Fixed almost every photo showing "No Image" in the new PDF with Images export.',
+    detail:'v4.12\'s photo loader used a plain cross-origin <img> tag (with crossOrigin="anonymous") to pull each asset\'s photo off Google Drive before drawing it into the PDF. Google\'s Drive thumbnail/content endpoints generally don\'t send the CORS headers a browser needs to read pixel data out of a cross-origin image into a canvas — the image either refuses to load at all once crossOrigin is set (silent failure, printed as "No Image"), or loads but leaves the canvas "tainted" so reading it throws. This is why only a small handful of photos came through (the ones stored as an inline data: URI rather than a Drive link) while every genuinely Drive-hosted photo failed silently. Fixed by fetching each photo\'s bytes directly from the authenticated Drive API — the same Bearer-token connection already used for the JSON master files — instead of an anonymous browser image request; the fetched bytes are loaded as a same-origin blob so the canvas is never tainted. This needs an active Drive sign-in to work (since it authenticates the same way the rest of the app does), so the PDF with Images button now shows a clear message asking you to sign in first if you click it while offline, rather than silently printing every row as "No Image".' },
+  { version:'4.12', date: nowISO(), type:'minor', summary:'New "PDF with Images" export on Print & Export, and the manifest PDF header now leads with a centered company logo.',
+    detail:'Added a "PDF with Images" button next to Download Full PDF on the Print & Export page. It builds the same Asset #, Name, Category, Location, Qty, Condition, Updated table as the standard manifest, with a photo column added on the left of every row at a genuinely readable size (not a postage-stamp thumbnail) — each row is drawn tall enough to fit it, and a missing/broken photo prints "No Image" in that cell rather than failing the whole export. Photos are fetched in small batches (6 at a time) rather than all at once, with the button label showing live progress ("Loading photos… 40/210") since a large inventory can take a moment; each photo is downscaled and re-encoded as JPEG before embedding so a few-hundred-asset PDF stays a reasonable file size instead of ballooning. Also restructured the manifest header on both the standard and photo PDFs into a centered letterhead — logo centered at the top (previously small and top-right), with company name, address, and contact line centered beneath it — for a more professional, print-shop look; the report title, location filter, and item count still sit left/right beneath that on their own line.' },
   { version:'4.11', date: nowISO(), type:'patch', summary:'Fixed a cloud-sync gap where an edit could get silently queued and never actually pushed to Drive with no error shown; added a Go-Live Reset in the Danger Zone.',
     detail:'scheduleActiveCloudPush()/scheduleHistoryCloudPush() correctly defer a push (marking it "dirty") whenever a pull is mid-flight or sync isn\'t ready yet — but nothing was guaranteed to retry a deferred push afterward except the next sign-in or a manual Sync Now click; the 20-second poll only ever checked for incoming remote changes. If a save happened to land in that window, it could sit queued indefinitely with the Drive file\'s timestamp never updating and no error toast, since nothing had actually failed — it was just waiting on a retry that never came. pollCloud() now also flushes any pending dirty push/history-push on every 20-second tick, so a deferred write can no longer get silently stuck. Added console logging around every push gate/attempt/result for easier diagnosis going forward. Also added a Go-Live Reset button to Settings → Danger Zone (Administrator only): unlike Delete All Records (which intentionally keeps History for audit), this wipes assets AND History AND resets the Asset Number counter back to the start, then immediately force-pushes the clean state to both Drive files — for starting a fresh production launch with zero test data on all devices at once.' },
   { version:'4.10', date: nowISO(), type:'patch', summary:'Method C\'s Take/Choose Photo split into two explicit buttons — Camera and Gallery/Files — so camera access no longer depends on the phone\'s OS picker deciding whether to offer it.',
@@ -1040,6 +1053,11 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.9'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.10'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.11'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.12'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.13'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.14'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.15'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.16'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1079,7 +1097,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.11', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.16', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -1692,7 +1710,7 @@ function renderLocationView(){
     const { total, usable } = groupTotals(list);
     const rep = list[0];
     const img = rep.imageSrc
-      ? `<img src="${escapeHtml(rep.imageSrc)}" class="w-full h-full object-cover" onerror="window.__cardImgError && window.__cardImgError(this)"/>`
+      ? `<img src="${escapeHtml(rep.imageSrc)}" class="w-full h-full object-cover cursor-zoom-in" title="Click to view large" data-lightbox="1" onerror="window.__cardImgError && window.__cardImgError(this)"/>`
       : iconFallback();
 
     const conditionRows = list.map(entry=>{
@@ -1761,6 +1779,49 @@ function renderLocationView(){
   </div>`;
 }
 function iconFallback(){ return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>`; }
+/* Full-size image viewer — click any asset photo (card thumbnail, edit-form
+   preview, A4 live preview, Print & Export preview row) to see it large. The
+   lightbox element is appended directly to document.body rather than inside
+   #shell, so it survives whatever re-render happens to fire while it's open
+   (the app's render() cycle replaces #shell's innerHTML wholesale, which
+   would otherwise wipe an open lightbox out from under the user). Built
+   lazily on first use and reused after that. Every caller passes `this.src`
+   (the already-resolved <img> element's own src) rather than re-interpolating
+   the asset's raw imageSrc into an inline attribute, so no HTML/JS-escaping
+   of Drive URLs (which can contain &, =, ? etc.) is ever needed. */
+function openImageLightbox(src){
+  if(!src) return;
+  let lb = document.getElementById('img-lightbox');
+  if(!lb){
+    lb = document.createElement('div');
+    lb.id = 'img-lightbox';
+    lb.className = 'fixed inset-0 z-[999] bg-black/85 flex items-center justify-center p-6 cursor-zoom-out';
+    lb.innerHTML = `<img id="img-lightbox-img" class="max-w-full max-h-full rounded-lg shadow-2xl cursor-auto" src="" alt="Asset photo, large view"/>
+      <button id="img-lightbox-close" type="button" aria-label="Close" class="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-2xl leading-none">&times;</button>`;
+    lb.addEventListener('click', (ev)=>{ if(ev.target.id !== 'img-lightbox-img') closeImageLightbox(); });
+    document.body.appendChild(lb);
+    document.addEventListener('keydown', (ev)=>{ if(ev.key==='Escape') closeImageLightbox(); });
+  }
+  document.getElementById('img-lightbox-img').src = src;
+  lb.style.display = 'flex';
+}
+function closeImageLightbox(){
+  const lb = document.getElementById('img-lightbox');
+  if(lb) lb.style.display = 'none';
+}
+/* Delegated on document rather than wired via inline onclick="" attributes:
+   the whole app is wrapped in its own IIFE, so an inline onclick — which
+   always resolves against the GLOBAL scope, not the closure it was written
+   in — could never actually find this function (silent no-op: no console
+   error visible to the user, which is why the cursor still changed on hover
+   but clicking did nothing). A single delegated listener defined here stays
+   inside the closure and needs no global exposure, and — as a bonus — never
+   needs re-binding after render() replaces the surrounding DOM, since every
+   photo everywhere just needs the data-lightbox="1" marker to opt in. */
+document.addEventListener('click', (ev)=>{
+  const img = ev.target.closest('img[data-lightbox]');
+  if(img && img.src) openImageLightbox(img.src);
+});
 function iconEdit(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>`; }
 function iconDup(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`; }
 function iconTrash(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6"/></svg>`; }
@@ -1894,7 +1955,7 @@ function renderStandardForm(e){
           <p id="f-image-mobile-status" class="text-[10px] text-[#a89f85] mt-1.5 leading-snug min-h-[2.4em]">${state.cloud.connected ? 'Compresses to ≤1000px WebP and uploads straight to your Drive folder — no base64 bloat in the saved record.' : 'Sign in to Google Drive in Settings first — this method uploads directly to your shared Drive folder.'}</p>
         </div>
       </div>
-      <div id="image-preview-wrap" class="mt-3">${e.imageSrc?`<img src="${escapeHtml(e.imageSrc)}" class="h-20 rounded-lg border border-[#E7E2D3] object-cover" onerror="window.__imgLoadError && window.__imgLoadError(this)"/>`:''}</div>
+      <div id="image-preview-wrap" class="mt-3">${e.imageSrc?`<img src="${escapeHtml(e.imageSrc)}" class="h-20 rounded-lg border border-[#E7E2D3] object-cover cursor-zoom-in" title="Click to view large" data-lightbox="1" onerror="window.__imgLoadError && window.__imgLoadError(this)"/>`:''}</div>
       ${e.imageId ? `<p id="image-capture-id" class="text-[10px] text-[#a89f85] mt-1 font-mono">${escapeHtml(e.imageId)} · captured ${fmtDateTime(new Date(e.imageCapturedAt))}</p>` : `<p id="image-capture-id" class="hidden text-[10px] text-[#a89f85] mt-1 font-mono"></p>`}
       <p id="image-error-note" class="hidden text-[11px] text-red-500 mt-2">This image link couldn't load — the Drive file is probably not shared as "Anyone with the link", or the URL isn't a direct image link.</p>
     </div>
@@ -1955,7 +2016,7 @@ function renderSplitForm(e){
 --------------------------------------------------------------------------- */
 function a4TemplateHtml(e, forPrint){
   const logo = state.settings.logo ? `<img src="${state.settings.logo}" class="h-12 object-contain"/>` : '';
-  const img = e.imageSrc ? `<img src="${e.imageSrc}" class="w-full h-40 object-cover rounded-lg border border-[#E7E2D3]"/>` : `<div class="w-full h-40 rounded-lg border border-dashed border-[#DCD7C6] flex items-center justify-center text-[#c9c3ac] text-xs">No Image</div>`;
+  const img = e.imageSrc ? `<img src="${e.imageSrc}" class="w-full h-40 object-cover rounded-lg border border-[#E7E2D3] cursor-zoom-in" title="Click to view large" data-lightbox="1"/>` : `<div class="w-full h-40 rounded-lg border border-dashed border-[#DCD7C6] flex items-center justify-center text-[#c9c3ac] text-xs">No Image</div>`;
   const c = condMeta(e.condition);
   return `
   <div class="flex items-start justify-between border-b-2 pb-4 mb-6" style="border-color:var(--theme-color)">
@@ -2797,6 +2858,7 @@ function renderPrintView(){
             <option value="category" ${state.printSelection.sortBy==='category'?'selected':''}>Category</option>
             <option value="location" ${state.printSelection.sortBy==='location'?'selected':''}>Location</option>
             <option value="condition" ${state.printSelection.sortBy==='condition'?'selected':''}>Condition</option>
+            <option value="hasImage" ${state.printSelection.sortBy==='hasImage'?'selected':''}>Has Image (Images First)</option>
           </select>
         </div>
       </div>
@@ -2804,6 +2866,8 @@ function renderPrintView(){
         <button id="p-view" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] flex items-center gap-2">${iconEye()} View PDF</button>
         <button id="p-print" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">Print Full Manifest</button>
         <button id="p-pdf" class="px-4 py-2.5 rounded-xl theme-bg text-white text-sm font-medium">Download Full PDF</button>
+        <button id="p-pdf-images-view" class="px-4 py-2.5 rounded-xl border border-[#4C9D38] text-[#4C9D38] text-sm font-medium hover:bg-[#F1F7EE] disabled:opacity-60 disabled:cursor-wait flex items-center gap-2">${iconEye()} View PDF with Images</button>
+        <button id="p-pdf-images" class="px-4 py-2.5 rounded-xl border border-[#4C9D38] text-[#4C9D38] text-sm font-medium hover:bg-[#F1F7EE] disabled:opacity-60 disabled:cursor-wait">PDF with Images</button>
       </div>
     </section>
 
@@ -2812,13 +2876,18 @@ function renderPrintView(){
       ${rows.length ? `<div class="overflow-auto max-h-[520px] border border-[#EFEBDD] rounded-lg">
         <table class="w-full text-xs min-w-[600px]">
           <thead class="sticky top-0 bg-white"><tr class="text-left text-[11px] uppercase tracking-wider text-[#a89f85] border-b border-[#EFEBDD]">
-            <th class="py-2 pr-3 pl-3">Asset #</th><th class="py-2 pr-3">Name</th><th class="py-2 pr-3">Category</th><th class="py-2 pr-3">Location</th><th class="py-2 pr-3">Qty</th><th class="py-2 pr-3">Condition</th>
+            <th class="py-2 pr-3 pl-3">Photo</th><th class="py-2 pr-3">Asset #</th><th class="py-2 pr-3">Name</th><th class="py-2 pr-3">Category</th><th class="py-2 pr-3">Location</th><th class="py-2 pr-3">Qty</th><th class="py-2 pr-3">Condition</th>
           </tr></thead>
           <tbody>
             ${rows.map(r=>{
               const c = condMeta(r.condition);
+              const photoSrc = assetPhotoSrc(r);
+              const photoCell = photoSrc
+                ? `<img src="${escapeHtml(photoSrc)}" class="w-8 h-8 rounded object-cover border border-[#E7E2D3] cursor-zoom-in" title="Click to view large" data-lightbox="1" onerror="this.outerHTML='<span class=&quot;text-[10px] text-red-400&quot;>Broken</span>'"/>`
+                : `<span class="text-[10px] text-[#c9c3ac]">— No Image</span>`;
               return `<tr class="border-b border-[#F5F2E8] last:border-0">
-                <td class="py-2 pr-3 pl-3 font-mono">${r.assetNumber}</td><td class="py-2 pr-3">${escapeHtml(r.name)}</td>
+                <td class="py-2 pr-3 pl-3">${photoCell}</td>
+                <td class="py-2 pr-3 font-mono">${r.assetNumber}</td><td class="py-2 pr-3">${escapeHtml(r.name)}</td>
                 <td class="py-2 pr-3">${escapeHtml(r.category)}</td><td class="py-2 pr-3">${escapeHtml(r.location)}</td>
                 <td class="py-2 pr-3 font-mono">${r.qty}</td><td class="py-2 pr-3"><span class="px-2 py-0.5 rounded-full ${c.cls}">${r.condition}</span></td>
               </tr>`;
@@ -2981,6 +3050,8 @@ function bindPrintViewEvents(){
   bind('p-view','click', ()=>viewManifestPdf());
   bind('p-print','click', ()=>printManifest(false));
   bind('p-pdf','click', ()=>printManifest(true));
+  bind('p-pdf-images-view','click', ()=>viewManifestPdfWithImages());
+  bind('p-pdf-images','click', ()=>downloadManifestPdfWithImages());
 }
 
 /* ---------------------------------------------------------------------------
@@ -3957,6 +4028,12 @@ function sortedFilteredAssets(){
   }
   const key = state.printSelection.sortBy;
   rows.sort((a,b)=>{
+    if(key==='hasImage'){
+      const aHas = a.imageSrc ? 0 : 1; // items with a photo sort before items without one
+      const bHas = b.imageSrc ? 0 : 1;
+      if(aHas !== bHas) return aHas - bHas;
+      return String(a.name||'').localeCompare(String(b.name||'')); // stable order within each group
+    }
     const av = key==='assetNumber' ? a.assetNumber : (a[key]||'');
     const bv = key==='assetNumber' ? b.assetNumber : (b[key]||'');
     return String(av).localeCompare(String(bv));
@@ -3996,75 +4073,153 @@ function printSingle(item){
   renderPrintRoot(a4TemplateHtml(item, true));
   setTimeout(()=>window.print(), 150);
 }
-/* Loads a (possibly cross-origin) image URL and returns a PNG data URL, or
-   null on any failure — used to embed the company logo in the native PDF
-   without letting a CORS/network hiccup abort the whole export. */
-function loadImageDataUrl(url){
+/* Google Drive's thumbnail/image endpoints generally don't send the CORS
+   headers a browser needs to read pixel data out of a cross-origin <img> tag
+   into a canvas — either the image refuses to load at all once
+   crossOrigin='anonymous' is set (silent onerror), or it loads but leaves the
+   canvas "tainted" so toDataURL() throws. Either way the net effect for a
+   Drive-hosted photo is a silent, unrecoverable failure — exactly the "almost
+   every image shows No Image" symptom. The reliable fix is to bypass the
+   browser's cross-origin image loading entirely: fetch the file's bytes
+   directly from the authenticated Drive API (the same Bearer-token mechanism
+   already used for the JSON master files), then load that as a same-origin
+   blob: URL, which canvas can always read. This only works while signed in
+   (an access token is required); a non-Drive URL (a plain public image link,
+   or an inline data: URI already sitting in imageSrc) still loads the old way
+   since there's no Drive file ID to authenticate against. */
+async function driveFetchBlob(fileId){
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    headers: { Authorization: 'Bearer '+state.cloud.accessToken }
+  });
+  if(!res.ok) throw new Error(`Drive API ${res.status}`);
+  return res.blob();
+}
+function loadImageElementFromUrl(url){
   return new Promise((resolve)=>{
-    if(!url){ resolve(null); return; }
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.onload = ()=>{
-      try{
-        const c = document.createElement('canvas');
-        c.width = img.naturalWidth; c.height = img.naturalHeight;
-        c.getContext('2d').drawImage(img,0,0);
-        resolve(c.toDataURL('image/png'));
-      }catch(e){ resolve(null); }
-    };
+    img.onload = ()=> resolve(img);
     img.onerror = ()=> resolve(null);
     img.src = url;
   });
 }
-/* Native vector-text PDF for the Full Inventory Manifest — replaces the old
-   html2canvas raster approach. Fixes two reported problems at once:
-   (1) blurry/low-quality output, since text is now real PDF text rather than
-   a rasterized screenshot; (2) rows being sliced across a page boundary,
-   since jsPDF-autotable paginates by whole rows. Company Metadata (name,
-   address, logo) repeats as a header and "Page X of Y" + printed date/time
-   repeats as a footer on every page, all inside a true 0.75in margin. */
-async function buildManifestPdfDoc(rows){
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF('p','mm','a4');
+async function resolveImageElement(url){
+  if(!url) return null;
+  const fileId = /^https?:\/\//i.test(url) ? extractDriveFileId(url) : null;
+  if(fileId && state.cloud.connected && state.cloud.accessToken){
+    try{
+      const blob = await driveFetchBlob(fileId);
+      const objUrl = URL.createObjectURL(blob);
+      const img = await loadImageElementFromUrl(objUrl);
+      if(img) img.__objectUrl = objUrl; else URL.revokeObjectURL(objUrl);
+      if(img) return img;
+      // fall through to the plain-load fallback below if the blob itself
+      // somehow wasn't a decodable image
+    }catch(e){ /* fall through — e.g. token expired mid-batch, file moved */ }
+  }
+  // Fallback covers: inline data: URIs (always same-origin, never CORS-limited),
+  // and any non-Drive public image URL that does send proper CORS headers.
+  return loadImageElementFromUrl(url);
+}
+/* Loads a (possibly cross-origin) image URL and returns a PNG data URL, or
+   null on any failure — used to embed the company logo in the native PDF
+   without letting a CORS/network hiccup abort the whole export. */
+async function loadImageDataUrl(url){
+  if(!url) return null;
+  const img = await resolveImageElement(url);
+  if(!img){ return null; }
+  try{
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    c.getContext('2d').drawImage(img,0,0);
+    return c.toDataURL('image/png');
+  }catch(e){ return null; }
+  finally{ if(img.__objectUrl) URL.revokeObjectURL(img.__objectUrl); }
+}
+/* Same idea as loadImageDataUrl, but for the "PDF with Images" asset manifest:
+   returns {url, w, h} (a JPEG data URL plus its pixel size, so each row can be
+   drawn at the correct aspect ratio) instead of just a data URL, and downscales
+   anything larger than maxDim on its longest side before encoding. The printed
+   cell is only ~24mm wide, so anything beyond a few hundred px is wasted size —
+   capping this keeps a multi-hundred-asset PDF from becoming enormous. Resolves
+   null (not a rejected promise) on any failure, so one broken/missing photo
+   never aborts the whole export — it just prints as "No Image" for that row. */
+async function loadImageDataUrlWithSize(url, maxDim, quality){
+  maxDim = maxDim || 480; quality = quality || 0.72;
+  if(!url) return null;
+  const img = await resolveImageElement(url);
+  if(!img || !img.naturalWidth || !img.naturalHeight){ if(img && img.__objectUrl) URL.revokeObjectURL(img.__objectUrl); return null; }
+  try{
+    let w = img.naturalWidth, h = img.naturalHeight;
+    const scale = Math.min(1, maxDim / Math.max(w,h));
+    w = Math.round(w*scale); h = Math.round(h*scale);
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,w,h); // flatten transparency before JPEG encode
+    ctx.drawImage(img,0,0,w,h);
+    return { url: c.toDataURL('image/jpeg', quality), w, h };
+  }catch(e){ return null; }
+  finally{ if(img.__objectUrl) URL.revokeObjectURL(img.__objectUrl); }
+}
+/* Resolves the browser-loadable src for an asset's photo the same way the
+   rest of the app does elsewhere (e.g. Excel export) — a stored Drive link
+   is normalized through convertImageUrl(); anything else (an inline data URI,
+   or nothing at all) is passed through/omitted as-is. */
+function assetPhotoSrc(row){
+  if(!row.imageSrc) return null;
+  return /^https?:\/\//i.test(row.imageSrc) ? convertImageUrl(row.imageSrc) : row.imageSrc;
+}
+/* ---------------------------------------------------------------------------
+   Shared manifest PDF header/footer — used by both the standard column-only
+   Full Inventory Manifest and the photo-inclusive "PDF with Images" export,
+   so the two always match. Logo (if set in Company Metadata) is centered at
+   the top, with company name/address/contact centered beneath it, matching a
+   traditional letterhead. Layout is computed once from fixed, presence-based
+   line heights (not measured off the live canvas) so every page's header
+   lands at the exact same Y and autoTable's own startY/margin.top can be
+   pre-computed to match, before any drawing happens. --------------------- */
+async function prepareManifestHeader(){
   const logoDataUrl = await loadImageDataUrl(state.settings.logo);
-  const marginX = 19.05; // 0.75in on every side
-  const pageWidth = 210, pageHeight = 297;
-  const headerBottom = marginX + 15;
-  const locLabel = state.printSelection.location==='all' ? 'All Locations' : state.printSelection.location;
+  const hasAddress = !!state.settings.address;
   const contactLine = [state.settings.phone, state.settings.email, state.settings.website].filter(Boolean).join('  ·  ');
-
-  const drawHeader = ()=>{
-    doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(33,38,31);
-    doc.text(state.settings.companyName || 'Company Name', marginX, marginX);
-    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(138,132,113);
-    doc.text(state.settings.address || '', marginX, marginX + 5);
-    if(contactLine) doc.text(contactLine, marginX, marginX + 9.5);
-    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(76,157,56);
-    doc.text('Full Inventory Manifest', pageWidth - marginX, marginX, {align:'right'});
-    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(138,132,113);
-    doc.text(locLabel, pageWidth - marginX, marginX + 5, {align:'right'});
-    doc.text(`${rows.length} item${rows.length===1?'':'s'}`, pageWidth - marginX, marginX + 9.5, {align:'right'});
-    if(logoDataUrl){
-      try{ doc.addImage(logoDataUrl, 'PNG', pageWidth - marginX - 20, marginX - 9, 20, 13, undefined, 'FAST'); }catch(e){}
-    }
-    doc.setDrawColor(76,157,56); doc.setLineWidth(0.4);
-    doc.line(marginX, headerBottom, pageWidth - marginX, headerBottom);
-  };
-
-  doc.autoTable({
-    head: [['Asset #','Name','Category','Location','Qty','Condition','Updated']],
-    body: rows.map(r=>[r.assetNumber, r.name, r.category, r.location, String(r.qty), r.condition, fmtDate(r.lastUpdated)]),
-    startY: headerBottom + 6,
-    margin: { left: marginX, right: marginX, top: headerBottom + 6, bottom: marginX + 12 },
-    styles: { font:'helvetica', fontSize:8, cellPadding:2, overflow:'linebreak', lineColor:[231,226,211], lineWidth:0.1, textColor:[33,38,31] },
-    headStyles: { fillColor:[76,157,56], textColor:255, fontStyle:'bold', fontSize:8 },
-    alternateRowStyles: { fillColor:[250,248,241] },
-    theme: 'grid',
-    didDrawPage: drawHeader
-  });
-
-  // Footer pass (page numbers + printed date/time) runs after pagination is
-  // final, so "Page X of Y" is accurate on every page.
+  const marginX = 19.05; // 0.75in
+  let headerBottom = marginX;
+  if(logoDataUrl) headerBottom += 16;
+  headerBottom += 5;
+  if(hasAddress) headerBottom += 4.5;
+  if(contactLine) headerBottom += 4.5;
+  headerBottom += 1.5 + 5 + 3;
+  return { logoDataUrl, hasAddress, contactLine, marginX, headerBottom };
+}
+function drawManifestHeader(doc, ctx, opts){
+  const { logoDataUrl, hasAddress, contactLine, marginX } = ctx;
+  const { reportTitle, locLabel, itemCount, pageWidth } = opts;
+  let y = marginX;
+  if(logoDataUrl){
+    const logoW = 22, logoH = 14;
+    try{ doc.addImage(logoDataUrl, 'PNG', (pageWidth-logoW)/2, y - 5, logoW, logoH, undefined, 'FAST'); }catch(e){}
+    y += 16;
+  }
+  doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(33,38,31);
+  doc.text(state.settings.companyName || 'Company Name', pageWidth/2, y, {align:'center'});
+  y += 5;
+  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(138,132,113);
+  if(hasAddress){ doc.text(state.settings.address, pageWidth/2, y, {align:'center'}); y += 4.5; }
+  if(contactLine){ doc.text(contactLine, pageWidth/2, y, {align:'center'}); y += 4.5; }
+  y += 1.5;
+  doc.setDrawColor(76,157,56); doc.setLineWidth(0.4);
+  doc.line(marginX, y, pageWidth - marginX, y);
+  y += 5;
+  doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(76,157,56);
+  doc.text(reportTitle, marginX, y);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(138,132,113);
+  doc.text(`${locLabel}  ·  ${itemCount} item${itemCount===1?'':'s'}`, pageWidth - marginX, y, {align:'right'});
+  y += 3;
+  doc.setDrawColor(231,226,211); doc.setLineWidth(0.2);
+  doc.line(marginX, y, pageWidth - marginX, y);
+}
+function drawManifestFooter(doc, marginX, pageWidth, pageHeight){
   const totalPages = doc.internal.getNumberOfPages();
   const printedAt = new Date();
   const printedStr = `Printed ${printedAt.toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'})} · ${printedAt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`;
@@ -4075,7 +4230,131 @@ async function buildManifestPdfDoc(rows){
     doc.text(printedStr, pageWidth - marginX, pageHeight - marginX + 9, {align:'right'});
   }
   doc.setTextColor(0);
+}
+/* Native vector-text PDF for the Full Inventory Manifest — replaces the old
+   html2canvas raster approach. Fixes two reported problems at once:
+   (1) blurry/low-quality output, since text is now real PDF text rather than
+   a rasterized screenshot; (2) rows being sliced across a page boundary,
+   since jsPDF-autotable paginates by whole rows. Company Metadata (name,
+   address, logo) repeats as a centered letterhead header and "Page X of Y"
+   + printed date/time repeats as a footer on every page, all inside a true
+   0.75in margin. */
+async function buildManifestPdfDoc(rows){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p','mm','a4');
+  const pageWidth = 210, pageHeight = 297;
+  const ctx = await prepareManifestHeader();
+  const locLabel = state.printSelection.location==='all' ? 'All Locations' : state.printSelection.location;
+
+  doc.autoTable({
+    head: [['Asset #','Name','Category','Location','Qty','Condition','Updated']],
+    body: rows.map(r=>[r.assetNumber, r.name, r.category, r.location, String(r.qty), r.condition, fmtDate(r.lastUpdated)]),
+    startY: ctx.headerBottom + 4,
+    margin: { left: ctx.marginX, right: ctx.marginX, top: ctx.headerBottom + 4, bottom: ctx.marginX + 12 },
+    styles: { font:'helvetica', fontSize:8, cellPadding:2, overflow:'linebreak', lineColor:[231,226,211], lineWidth:0.1, textColor:[33,38,31] },
+    headStyles: { fillColor:[76,157,56], textColor:255, fontStyle:'bold', fontSize:8 },
+    alternateRowStyles: { fillColor:[250,248,241] },
+    theme: 'grid',
+    didDrawPage: ()=> drawManifestHeader(doc, ctx, { reportTitle:'Full Inventory Manifest', locLabel, itemCount: rows.length, pageWidth })
+  });
+
+  drawManifestFooter(doc, ctx.marginX, pageWidth, pageHeight);
   return doc;
+}
+/* Same report as buildManifestPdfDoc, with a photo column added on the left
+   of every row so it can be handed to someone who wants a visual catalog,
+   not just a data table (e.g. management review, insurance/handover packs).
+   Photos are pre-fetched as downscaled JPEG data URLs (see
+   loadImageDataUrlWithSize) before autoTable runs, then drawn into each row's
+   image cell via didDrawCell once its real on-page position is known — the
+   image column is given a fixed minCellHeight so every row is tall enough to
+   fit a genuinely readable photo, not a postage-stamp thumbnail. A missing or
+   failed photo prints "No Image" in that cell instead of leaving it blank,
+   and never aborts the export. */
+async function buildManifestPdfWithImagesDoc(rows, onProgress){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p','mm','a4');
+  const pageWidth = 210, pageHeight = 297;
+  const ctx = await prepareManifestHeader();
+  const locLabel = state.printSelection.location==='all' ? 'All Locations' : state.printSelection.location;
+
+  // Fetch sequentially in small batches (rather than one giant Promise.all)
+  // so a large inventory doesn't fire hundreds of simultaneous image requests
+  // at once, and so progress can be reported back to the button label.
+  const photoMetas = new Array(rows.length).fill(null);
+  const batchSize = 6;
+  for(let i=0; i<rows.length; i += batchSize){
+    const batch = rows.slice(i, i+batchSize);
+    const results = await Promise.all(batch.map(r=> loadImageDataUrlWithSize(assetPhotoSrc(r))));
+    results.forEach((res,j)=>{ photoMetas[i+j] = res; });
+    if(onProgress) onProgress(Math.min(i+batchSize, rows.length), rows.length);
+  }
+
+  const imgColW = 26;
+  doc.autoTable({
+    head: [['Image','Asset #','Name','Category','Location','Qty','Condition','Updated']],
+    body: rows.map(r=>['', r.assetNumber, r.name, r.category, r.location, String(r.qty), r.condition, fmtDate(r.lastUpdated)]),
+    startY: ctx.headerBottom + 4,
+    margin: { left: ctx.marginX, right: ctx.marginX, top: ctx.headerBottom + 4, bottom: ctx.marginX + 12 },
+    styles: { font:'helvetica', fontSize:8, cellPadding:2, overflow:'linebreak', lineColor:[231,226,211], lineWidth:0.1, textColor:[33,38,31], valign:'middle' },
+    headStyles: { fillColor:[76,157,56], textColor:255, fontStyle:'bold', fontSize:8 },
+    alternateRowStyles: { fillColor:[250,248,241] },
+    columnStyles: {
+      0: { cellWidth: imgColW, minCellHeight: 24 },
+      1: { cellWidth: 19 }, 2: { cellWidth: 31 }, 3: { cellWidth: 22 },
+      4: { cellWidth: 22 }, 5: { cellWidth: 9, halign:'center' }, 6: { cellWidth: 19 }, 7: { cellWidth: 18 }
+    },
+    theme: 'grid',
+    didDrawPage: ()=> drawManifestHeader(doc, ctx, { reportTitle:'Full Inventory Manifest — With Photos', locLabel, itemCount: rows.length, pageWidth }),
+    didDrawCell: (data)=>{
+      if(data.section !== 'body' || data.column.index !== 0) return;
+      const meta = photoMetas[data.row.index];
+      const pad = 1;
+      if(meta){
+        const boxW = data.cell.width - pad*2, boxH = data.cell.height - pad*2;
+        const scale = Math.min(boxW/meta.w, boxH/meta.h, 1);
+        const w = meta.w*scale, h = meta.h*scale;
+        const x = data.cell.x + (data.cell.width - w)/2;
+        const y = data.cell.y + (data.cell.height - h)/2;
+        try{ doc.addImage(meta.url, 'JPEG', x, y, w, h, undefined, 'FAST'); }catch(e){}
+      } else {
+        doc.setFont('helvetica','italic'); doc.setFontSize(6.5); doc.setTextColor(180,176,160);
+        doc.text('No Image', data.cell.x + data.cell.width/2, data.cell.y + data.cell.height/2, { align:'center', baseline:'middle' });
+        doc.setTextColor(0);
+      }
+    }
+  });
+
+  drawManifestFooter(doc, ctx.marginX, pageWidth, pageHeight);
+  return doc;
+}
+async function downloadManifestPdfWithImages(){ return runManifestImagesPdf('download'); }
+async function viewManifestPdfWithImages(){ return runManifestImagesPdf('view'); }
+async function runManifestImagesPdf(mode){
+  const rows = sortedFilteredAssets();
+  if(!rows.length){ showToast('No items match this filter yet.','error'); return; }
+  if(!state.cloud.connected || !state.cloud.accessToken){
+    showToast('Sign in to Google Drive first — photos need an authenticated connection to load into the PDF.','error');
+    return;
+  }
+  const btnId = mode==='view' ? 'p-pdf-images-view' : 'p-pdf-images';
+  const btn = document.getElementById(btnId);
+  const originalLabel = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = `Loading photos… 0/${rows.length}`; }
+  try{
+    const doc = await buildManifestPdfWithImagesDoc(rows, (done,total)=>{
+      if(btn) btn.textContent = `Loading photos… ${done}/${total}`;
+    });
+    if(mode==='view'){
+      window.open(doc.output('bloburl'), '_blank');
+    } else {
+      doc.save(`inventory-manifest-with-images-${new Date().toISOString().slice(0,10)}.pdf`);
+    }
+  } catch(err){
+    showToast('Could not build the photo PDF: '+err.message, 'error');
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = originalLabel; }
+  }
 }
 async function printManifest(asPdf){
   const rows = sortedFilteredAssets();
