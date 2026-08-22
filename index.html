@@ -22,7 +22,7 @@ or redistribution is strictly prohibited.
 <title>Gaia Lake Bungalow — Assets &amp; Inventory Manager</title>
 <link rel="icon" type="image/png" href="favicon.png" />
 
-<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="style.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -176,7 +176,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.16</span>
+      <span id="sidebar-version">v4.18</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -202,6 +202,10 @@ or redistribution is strictly prohibited.
       </div>
       <nav id="mobile-nav" class="space-y-1"></nav>
       <div class="pt-3 mt-2 border-t sidebar-border" id="cloud-sidebar-slot-mobile"></div>
+      <div class="pt-3 mt-2 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between">
+        <span id="mobile-sidebar-version">v4.18</span>
+        <span class="grip-dot theme-bg"></span>
+      </div>
     </div>
   </div>
 
@@ -235,7 +239,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.16</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.18</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -967,6 +971,10 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.18', date: nowISO(), type:'patch', summary:'Fixed Export as Excel/CSV silently doing nothing when an asset\'s photo was stored inline rather than as a Drive link, and added the version number to the mobile hamburger menu (desktop sidebar already showed it).',
+    detail:'exportAssetsToExcel()/exportAssetsToCsv() had no error handling at all. Excel enforces a hard ~32,767-character limit per spreadsheet cell, and the SheetJS library throws on anything longer; any asset whose photo happened to be stored as a raw embedded image (from before it had a Drive connection) rather than a short Drive link would blow past that limit and throw — with nothing catching it, the whole export died with zero feedback, which is why clicking the button appeared to do nothing at all. Fixed two ways: embedded photos now export as a short readable note ("Photo saved in-app — not included in spreadsheet export") instead of the raw data, since dumping a giant base64 blob into a cell was never useful even when it didn\'t crash; and both export functions are now wrapped in proper error handling, so any future failure shows a clear error toast instead of failing silently. Also added the app version number to the bottom of the mobile hamburger menu, matching the desktop sidebar (which has always shown it there) — it was previously only visible on mobile by scrolling all the way to the page footer.' },
+  { version:'4.17', date: nowISO(), type:'patch', summary:'Replaced the Tailwind Play CDN script with a small pre-built, minified stylesheet — faster load, no more production-mode console warning.',
+    detail:'The Tailwind Play CDN (<script src="https://cdn.tailwindcss.com">) is meant for prototyping — it ships the entire Tailwind engine to the browser and re-compiles CSS live on every page load, which is why it printed a "cdn.tailwindcss.com should not be used in production" warning in the console and added load weight for something that never actually changes at runtime (the app doesn\'t modify its own class names on the fly, so there was nothing to justify recompiling in the browser). Replaced it with a single style.css built once, ahead of time, using the real Tailwind CLI scanning this exact file for every utility class actually in use — including ones only ever set from inside the app\'s JavaScript (conditional classes, dark mode, arbitrary values like the photo lightbox\'s z-[999] and bg-black/85) — so nothing that was working before should look any different. Deploy style.css to GitHub Pages in the same folder as index.html, alongside it, not instead of it.' },
   { version:'4.16', date: nowISO(), type:'patch', summary:'Fixed the new photo lightbox not opening on click (cursor changed, but nothing happened).',
     detail:'v4.15 wired each photo\'s click-to-enlarge using an inline onclick="..." HTML attribute. The whole app runs inside its own self-contained function wrapper (so its internal names don\'t leak into or collide with anything else on the page), but inline onclick attributes always run against the page\'s global scope, not that wrapper — so the browser could never actually find the function to call. This failed completely silently (no visible error), which is why the cursor still correctly showed the zoom icon on hover (pure CSS, unaffected) while the click itself did nothing, and right-click → Open image in new tab still worked (a native browser feature with no dependency on the page\'s own code). Fixed by switching to a single delegated click listener registered up front, which stays inside the app\'s own scope and needs no global exposure — every photo now just carries a marker attribute to opt in, and the fix applies uniformly to all four locations from v4.15 (card thumbnail, edit form preview, A4 preview, Print & Export preview).' },
   { version:'4.15', date: nowISO(), type:'minor', summary:'Click any asset photo to view it full-size, and a new "Unusable" condition (blue) added alongside Usable/Damaged/In Repair/Discarded/Missing.',
@@ -1058,6 +1066,8 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.14'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.15'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.16'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.17'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.18'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1097,7 +1107,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.16', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.18', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -1119,6 +1129,7 @@ async function initMeta(){
   }
   document.getElementById('sidebar-version').textContent = 'v'+state.meta.version;
   document.getElementById('footer-version').textContent = 'v'+state.meta.version;
+  document.getElementById('mobile-sidebar-version').textContent = 'v'+state.meta.version;
 }
 async function bumpVersion(type, summary, detail){
   let [maj,min] = state.meta.version.split('.').map(Number);
@@ -1129,6 +1140,7 @@ async function bumpVersion(type, summary, detail){
   await idbPut('meta', { key:'version', version:newVer, changelog: state.meta.changelog });
   document.getElementById('sidebar-version').textContent = 'v'+newVer;
   document.getElementById('footer-version').textContent = 'v'+newVer;
+  document.getElementById('mobile-sidebar-version').textContent = 'v'+newVer;
 }
 function downloadWhatsNew(){
   let out = `GAIA LAKE BUNGALOW — ASSET & INVENTORY MANAGER\nSoftware Change Audit Log\nGenerated: ${fmtDateTime(new Date())}\n`;
@@ -3512,34 +3524,59 @@ async function goLiveReset(){
   showToast('Go-live reset complete — starting fresh at asset number ' + await peekAssetNumber() + '.', 'info');
   navigateTo('dashboard');
 }
+/* An asset's imageSrc is either a short Drive link (fine as a spreadsheet
+   cell) or, for anything saved before it had a Drive connection, a raw
+   embedded data: URI — which can easily run to tens of thousands of
+   characters. Excel enforces a hard ~32,767-character-per-cell limit, and
+   SheetJS throws on anything longer; since exportAssetsToExcel() had no
+   try/catch around it, a single asset with an embedded photo silently killed
+   the entire export with zero feedback (click → nothing). Even where it
+   wouldn't hit that hard limit, dumping a giant base64 blob into a cell isn't
+   something anyone actually wants in their spreadsheet, so it's replaced with
+   a short, human-readable note instead — Drive links still export as-is. */
+function excelSafeImageValue(imageSrc){
+  if(!imageSrc) return '';
+  if(/^data:/i.test(imageSrc)) return '(Photo saved in-app — not included in spreadsheet export)';
+  return imageSrc;
+}
 function assetExportRows(){
   return state.assets.map(a=>({
     'Asset Number': a.assetNumber, 'Asset Name': a.name, 'Category': a.category, 'Sub-category': a.subCategory||'',
     'Location': a.location, 'Quantity': a.qty, 'Condition': a.condition,
     'Purchase Price': a.purchasePrice, 'Purchase Date': a.purchaseDate, 'Vendor': a.vendor,
-    'Notes': a.notes, 'Asset Image': a.imageSrc||'', 'Remarks': a.remarks||''
+    'Notes': a.notes, 'Asset Image': excelSafeImageValue(a.imageSrc), 'Remarks': a.remarks||''
   }));
 }
 function exportAssetsToExcel(){
   if(typeof XLSX === 'undefined'){ showToast('The spreadsheet library is still loading — please try again shortly.','error'); return; }
   if(!state.assets.length){ showToast('There are no records to export.','error'); return; }
-  const ws = XLSX.utils.json_to_sheet(assetExportRows());
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Assets');
-  XLSX.writeFile(wb, `gaia-lake-assets-${new Date().toISOString().slice(0,10)}.xlsx`);
-  showToast('Exported to Excel.');
+  try{
+    const ws = XLSX.utils.json_to_sheet(assetExportRows());
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Assets');
+    XLSX.writeFile(wb, `gaia-lake-assets-${new Date().toISOString().slice(0,10)}.xlsx`);
+    showToast('Exported to Excel.');
+  }catch(err){
+    showToast('Could not export to Excel: '+err.message, 'error');
+    console.error('[export] Excel export failed:', err);
+  }
 }
 function exportAssetsToCsv(){
   if(typeof XLSX === 'undefined'){ showToast('The spreadsheet library is still loading — please try again shortly.','error'); return; }
   if(!state.assets.length){ showToast('There are no records to export.','error'); return; }
-  const ws = XLSX.utils.json_to_sheet(assetExportRows());
-  const csv = XLSX.utils.sheet_to_csv(ws);
-  const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `gaia-lake-assets-${new Date().toISOString().slice(0,10)}.csv`;
-  a.click();
-  showToast('Exported to CSV.');
+  try{
+    const ws = XLSX.utils.json_to_sheet(assetExportRows());
+    const csv = XLSX.utils.sheet_to_csv(ws);
+    const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `gaia-lake-assets-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    showToast('Exported to CSV.');
+  }catch(err){
+    showToast('Could not export to CSV: '+err.message, 'error');
+    console.error('[export] CSV export failed:', err);
+  }
 }
 
 /* ---------------------------------------------------------------------------
