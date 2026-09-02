@@ -26,6 +26,9 @@ or redistribution is strictly prohibited.
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<!-- QR code generation (Edit Item form) and scanning (Dashboard Scan button). -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <!-- Google Identity Services (OAuth2) + Google API Client, used by the Cloud Connection
      Workspace in Settings for the optional Google Drive live-sync feature. -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -71,10 +74,22 @@ or redistribution is strictly prohibited.
   .badge-discarded{ background:#FEE2E2; color:#991B1B; }
   .badge-missing{ background:#E5E7EB; color:#374151; }
   .badge-unusable{ background:#0000ff; color:#ffffff; }
-  #a4-preview{ width:210mm; min-height:297mm; box-shadow:0 4px 24px rgba(0,0,0,0.12); }
+  #a4-preview{ width:148mm; min-height:210mm; box-shadow:0 4px 24px rgba(0,0,0,0.12); }
   @media (max-width:1024px){ #a4-preview{ width:100%; min-height:auto; } }
   @media print{
     @page{ size: A4; margin: 0.75in; }
+    /* Named page for the single-asset sheet (see assetSheetHtml/printSingle) —
+       kept separate from the default @page above so the multi-page Full
+       Inventory Manifest print is never affected. Browser support for
+       switching @page per-element via the `page` property varies (solid in
+       Chrome/Edge, inconsistent on some mobile browsers/iOS Safari, which
+       often ignore @page sizing in their own print dialog regardless) — this
+       is a best-effort match for the Print button; the Download PDF button
+       is the one guaranteed to produce a true A5 file on every device, since
+       that path sets the page size directly in code rather than relying on
+       the browser to honor it. */
+    @page compact{ size: 148mm 210mm; margin: 10mm; }
+    #print-root.compact-sheet{ page: compact; }
     body *{ visibility:hidden; }
     #print-root, #print-root *{ visibility:visible; }
     #print-root{ position:absolute; top:0; left:0; width:100%; }
@@ -176,7 +191,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.19</span>
+      <span id="sidebar-version">v4.22</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -187,9 +202,14 @@ or redistribution is strictly prohibited.
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
     </button>
     <p class="font-display font-semibold text-[15px]" id="mobile-title">Dashboard</p>
-    <button id="mobile-new-btn" class="p-2 -mr-2 rounded-lg theme-bg text-white" aria-label="New Item">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-    </button>
+    <div class="flex items-center gap-1">
+      <button id="mobile-scan-btn" class="p-2 rounded-lg hover:bg-[#F1EEE3]" aria-label="Scan QR">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM14 21h7v-4M21 14v3"/></svg>
+      </button>
+      <button id="mobile-new-btn" class="p-2 -mr-2 rounded-lg theme-bg text-white" aria-label="New Item">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
   </header>
 
   <!-- ===================== MOBILE SLIDE-OVER MENU ===================== -->
@@ -203,7 +223,7 @@ or redistribution is strictly prohibited.
       <nav id="mobile-nav" class="space-y-1"></nav>
       <div class="pt-3 mt-2 border-t sidebar-border" id="cloud-sidebar-slot-mobile"></div>
       <div class="pt-3 mt-2 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between">
-        <span id="mobile-sidebar-version">v4.19</span>
+        <span id="mobile-sidebar-version">v4.22</span>
         <span class="grip-dot theme-bg"></span>
       </div>
     </div>
@@ -239,7 +259,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.19</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.22</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -370,13 +390,15 @@ function guessZoneForLocation(name){
   return 'Guest Areas';
 }
 
+/* bg/text mirror the on-screen badge-* CSS colors above (light-mode values)
+   so a condition reads the same color in the app and on a printed PDF. */
 const CONDITIONS = [
-  { key:"Usable",    cls:"badge-usable",    dot:"#16a34a" },
-  { key:"Damaged",   cls:"badge-damaged",   dot:"#FFFF00" },
-  { key:"In Repair", cls:"badge-repair",    dot:"#FF8000" },
-  { key:"Discarded", cls:"badge-discarded", dot:"#dc2626" },
-  { key:"Missing",   cls:"badge-missing",   dot:"#6b7280" },
-  { key:"Unusable",  cls:"badge-unusable",  dot:"#0000ff" },
+  { key:"Usable",    cls:"badge-usable",    dot:"#16a34a", bg:"#DCFCE7", text:"#166534" },
+  { key:"Damaged",   cls:"badge-damaged",   dot:"#FFFF00", bg:"#FFFF00", text:"#5c4d00" },
+  { key:"In Repair", cls:"badge-repair",    dot:"#FF8000", bg:"#FF8000", text:"#ffffff" },
+  { key:"Discarded", cls:"badge-discarded", dot:"#dc2626", bg:"#FEE2E2", text:"#991B1B" },
+  { key:"Missing",   cls:"badge-missing",   dot:"#6b7280", bg:"#E5E7EB", text:"#374151" },
+  { key:"Unusable",  cls:"badge-unusable",  dot:"#0000ff", bg:"#0000ff", text:"#ffffff" },
 ];
 
 function locByCode(c){ return LOCATIONS.find(l=>l.code===c); }
@@ -912,7 +934,7 @@ const state = {
   editing: null,                // asset object currently in editor, or null (new)
   editorBaseAssetNumber: null,  // when adding batch / splitting, the group we're working on
   splitMode: false,
-  printSelection: { location:'all', sortBy:'name' },
+  printSelection: { location:'all', sortBy:'name', selectedIds:new Set() },
   navExpanded: {},
   selectMode: false,
   selectedGroups: new Set(),
@@ -1000,6 +1022,12 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.22', date: nowISO(), type:'patch', summary:'Six corrections to the 3APP reference sheet — true 1:1 logo sizing, condition color-coding, full Notes text, one merged block per Asset Number with a condition/qty breakdown instead of duplicate rows, and a Print & Export selection list that no longer jumps to the top on every tick.',
+    detail:'Logo now prints at its true aspect ratio everywhere it appears in a generated PDF (3APP header and the Full Manifest / PDF with Images letterhead) instead of being stretched into a fixed box. The 3APP header title is now "ASSET REFERENCE SHEET" in all caps, with the "3 Per Page" subtitle removed. Condition is now shown as a small colored pill on the 3APP sheet, using each condition\'s own badge color (matching the on-screen Usable/Unusable/Damaged/etc. colors) instead of plain black text. The Notes field is no longer hard-capped at 2 lines — it now prints as much of the note as fits the generous row height, only truncating with an ellipsis in the rare case a note is genuinely too long for the space. Biggest change: when the assets selected for a 3APP sheet include the same Asset Number split across multiple conditions (e.g. one number with separate Usable/Unusable/Damaged quantity records), those are now merged into a single asset block with one condition/qty pill per split, instead of printing as several near-identical, confusingly-numbered rows. Finally, ticking a checkbox, using Select All, or clearing selection in Print & Export no longer re-renders the whole page — it updates the selection count and checkboxes in place, so the scrollable asset list stays exactly where you left it.' },
+  { version:'4.21', date: nowISO(), type:'minor', summary:'New "3 Assets Per Page" (3APP) print/PDF format, QR codes on every asset (auto-generated + scannable from the Dashboard), and a fix for assets showing as "Untitled Asset" when printed from History.',
+    detail:'Fixed the root cause of "Untitled Asset": printing or exporting a PDF from a History row was passing the raw history log entry into the sheet template instead of the live asset record — a history entry doesn\'t carry the full set of fields (name, category, price, etc.), only what changed at that point in time, so most of the sheet came out blank. It now looks up the live asset by number first (same pattern already used correctly for the History row\'s Edit action) and only falls back to the bare history entry if the asset no longer exists. Added a new "3APP" print/PDF format: a full A4 page (0.75in margins, header and footer each under 1in) split into exactly 3 asset rows, each with a square (1:1) photo at the left margin and full detail alongside it — Category, Location, Quantity, Condition, Price, Purchase Date, Vendor, Last Updated, Notes — separated by a thin rule, with the page disclaimer and page/date info moved into a single shared footer instead of repeating per asset. Print & Export now has tick-box selection (with a location-scoped Select All) so a specific set of assets can be chosen, then previewed as a PDF before downloading. Added a QR code to the Edit Item form, auto-generated from the asset number (appears once the item has been saved and has a number), plus a Print button there that opens a 1-item 3APP sheet directly. Added a Scan QR button next to New Item on the Dashboard (and the mobile header) — opens the camera, decodes a QR code from an asset\'s label, and opens that asset\'s Edit form directly if a match is found.' },
+  { version:'4.20', date: nowISO(), type:'minor', summary:'The individual asset print/PDF sheet is now A5 (half of A4) instead of a full A4 page — same photo and full details, roughly half the paper.',
+    detail:'Redesigned the single-asset sheet (used by the Print and Export PDF actions on History rows) for a 148x210mm (A5) page instead of full A4: a full-width photo band up top rather than the old side-by-side split (which would leave the photo too small to be useful at A5 width), followed by a compact two-column grid of every field — Category, Location, Quantity, Condition, Purchase Price, Purchase Date, Vendor, Last Updated — and Notes. Remarks is intentionally left off the printed/exported sheet (it still shows anywhere the item itself is otherwise displayed) since it was called out as internal-only detail not needed on a paper reference sheet. A5 was chosen over quarter-A4 (A6) specifically because A6 is too small to fit a photo plus this many fields at a legible size without cutting content. The Download PDF button always produces a true 148x210mm file regardless of device; the browser Print button targets the same size but depends on the device/browser choosing to honor it, which varies (solid on Chrome/Edge, inconsistent on some mobile browsers) — Download PDF is the reliable one if the printed size matters.' },
   { version:'4.19', date: nowISO(), type:'patch', summary:'Fixed a mobile-only "database connection is closing" error shown right after signing in to Google Drive.',
     detail:'Signing in pulls the full inventory from Drive and writes every record into the local database in one continuous burst — for a ~200-item inventory, that\'s roughly 200 database writes back to back. The app held a single database connection opened once at startup with no way to recover if it was ever closed. Mobile browsers are far more aggressive than desktop about force-closing an idle or backgrounded IndexedDB connection under memory pressure, and a long, uninterrupted burst of writes right after opening the app is exactly the kind of moment that can trigger it — hence why this only ever showed up on phones, never on PC. It was harmless in the sense that the write which failed simply hadn\'t landed locally yet, but showed a scary red error and depended on the user retrying to fully catch up. Fixed by having the app notice when its database connection has been closed out from under it and transparently reopen and retry, once, before giving up — silently, since this is a normal recoverable condition on mobile rather than something that needs to alarm anyone.' },
   { version:'4.18', date: nowISO(), type:'patch', summary:'Fixed Export as Excel/CSV silently doing nothing when an asset\'s photo was stored inline rather than as a Drive link, and added the version number to the mobile hamburger menu (desktop sidebar already showed it).',
@@ -1100,6 +1128,9 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.17'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.18'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.19'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.20'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.21'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.22'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1139,7 +1170,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.19', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.22', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -1425,6 +1456,7 @@ document.getElementById('mobile-menu-btn').addEventListener('click', openMobileM
 document.getElementById('mobile-menu-close').addEventListener('click', closeMobileMenu);
 document.getElementById('mobile-menu-backdrop').addEventListener('click', closeMobileMenu);
 document.getElementById('mobile-new-btn').addEventListener('click', ()=>openEditor(null));
+document.getElementById('mobile-scan-btn').addEventListener('click', openQrScanner);
 document.addEventListener('click', (ev)=>{
   const box = document.getElementById('dash-search-results');
   const input = document.getElementById('dash-search');
@@ -1544,9 +1576,14 @@ function renderDashboard(){
         <h1 class="font-display text-xl lg:text-2xl font-semibold">Overview</h1>
         <p class="text-xs text-[#8a8471] mt-0.5">${escapeHtml(state.settings.companyName)} — live inventory snapshot</p>
       </div>
-      <button data-action="new-item" class="hidden lg:flex items-center gap-2 theme-bg text-white px-4 py-2 rounded-xl text-sm font-medium">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>New Item
-      </button>
+      <div class="flex items-center gap-2">
+        <button data-action="scan-qr" class="hidden lg:flex items-center gap-2 border border-[#E2DFD3] px-4 py-2 rounded-xl text-sm font-medium hover:bg-[#F1EEE3]">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM14 21h7v-4M21 14v3"/></svg>Scan QR
+        </button>
+        <button data-action="new-item" class="hidden lg:flex items-center gap-2 theme-bg text-white px-4 py-2 rounded-xl text-sm font-medium">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>New Item
+        </button>
+      </div>
     </div>
 
     <div class="relative">
@@ -1897,6 +1934,91 @@ function openEditor(entry, opts){
   state.view = 'editor';
   render();
 }
+/* Regenerates the QR preview in the Edit Item form (f-qr-code container) from
+   the current asset number — called after every render of the editor view.
+   QRCode.js appends into the container each time it's called, so the
+   container is cleared first or a fresh save() would stack duplicate codes on
+   top of each other. Nothing to do for a brand-new, not-yet-saved item since
+   there's no asset number to encode yet — the form shows an "Appears after
+   saving" placeholder box instead (see renderStandardForm). */
+function renderAssetQrCode(){
+  const el = document.getElementById('f-qr-code');
+  if(!el || !state.editing || !state.editing.assetNumber) return;
+  el.innerHTML = '';
+  try{ new QRCode(el, { text: state.editing.assetNumber, width:68, height:68, correctLevel: QRCode.CorrectLevel.M }); }catch(e){}
+}
+/* ---------------------------------------------------------------------------
+   QR SCANNER — Dashboard "Scan QR" button (desktop) / mobile header icon.
+   Opens the device camera in a small modal, continuously decodes frames with
+   jsQR until a code is found, looks the decoded text up as an asset number,
+   and opens that asset straight in the Edit Item form. Deliberately built as
+   a live video feed (not the existing Method C file-input photo capture,
+   which only grabs a single already-taken picture) since a barcode/QR
+   scanner fundamentally needs continuous frames to find and decode a code the
+   user is still aiming the camera at. */
+let qrScanStream = null;
+let qrScanRAF = null;
+function openQrScanner(){
+  if(document.getElementById('qr-scanner-modal')) return; // already open
+  const modal = document.createElement('div');
+  modal.id = 'qr-scanner-modal';
+  modal.className = 'fixed inset-0 z-[998] bg-black/90 flex items-center justify-center p-4';
+  modal.innerHTML = `
+    <div class="w-full max-w-sm bg-white rounded-2xl overflow-hidden">
+      <div class="p-3 flex items-center justify-between border-b border-[#E7E2D3]">
+        <p class="font-display font-semibold text-sm">Scan Asset QR Code</p>
+        <button id="qr-scan-close" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="relative bg-black">
+        <video id="qr-scan-video" class="w-full aspect-square object-cover" playsinline muted></video>
+        <div class="absolute inset-8 border-2 border-white/70 rounded-xl pointer-events-none"></div>
+      </div>
+      <p id="qr-scan-status" class="p-3 text-xs text-[#8a8471] text-center">Point the camera at an asset's QR code label.</p>
+    </div>`;
+  document.body.appendChild(modal);
+  document.getElementById('qr-scan-close').addEventListener('click', closeQrScanner);
+
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal:'environment' } } }).then(stream=>{
+    qrScanStream = stream;
+    const video = document.getElementById('qr-scan-video');
+    if(!video){ stream.getTracks().forEach(t=>t.stop()); return; } // modal closed before permission resolved
+    video.srcObject = stream;
+    video.play();
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently:true });
+    const tick = ()=>{
+      if(!qrScanStream) return; // scanner was closed
+      if(video.readyState === video.HAVE_ENOUGH_DATA){
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+        if(code && code.data){ handleQrScanResult(code.data); return; }
+      }
+      qrScanRAF = requestAnimationFrame(tick);
+    };
+    qrScanRAF = requestAnimationFrame(tick);
+  }).catch(err=>{
+    showToast('Could not access the camera: '+err.message, 'error');
+    closeQrScanner();
+  });
+}
+function closeQrScanner(){
+  if(qrScanRAF) cancelAnimationFrame(qrScanRAF);
+  qrScanRAF = null;
+  if(qrScanStream){ qrScanStream.getTracks().forEach(t=>t.stop()); qrScanStream = null; }
+  const modal = document.getElementById('qr-scanner-modal');
+  if(modal) modal.remove();
+}
+function handleQrScanResult(text){
+  closeQrScanner();
+  const code = String(text||'').trim();
+  const asset = state.assets.find(a=>a.assetNumber===code);
+  if(asset){ openEditor(asset); showToast('Opened asset '+code+'.'); }
+  else { showToast('No asset found with number "'+code+'".', 'error'); }
+}
 
 function renderEditorView(){
   const e = state.editing;
@@ -1923,9 +2045,17 @@ function renderStandardForm(e){
 
   return `
     <div class="grid sm:grid-cols-2 gap-4">
-      <div class="sm:col-span-2">
-        <label class="lbl">Asset Number</label>
-        <input id="f-assetnum" type="text" readonly class="inp font-mono bg-[#F7F5EF] text-[#8a8471]" value="${e.assetNumber ? e.assetNumber : 'Auto-generated on save'}"/>
+      <div class="sm:col-span-2 flex items-start gap-4">
+        <div class="flex-1">
+          <label class="lbl">Asset Number</label>
+          <input id="f-assetnum" type="text" readonly class="inp font-mono bg-[#F7F5EF] text-[#8a8471]" value="${e.assetNumber ? e.assetNumber : 'Auto-generated on save'}"/>
+        </div>
+        <div class="shrink-0 text-center">
+          <label class="lbl block mb-1">QR Code</label>
+          ${e.assetNumber
+            ? `<div id="f-qr-code" class="w-[76px] h-[76px] bg-white border border-[#E7E2D3] rounded-lg flex items-center justify-center p-1"></div>`
+            : `<div class="w-[76px] h-[76px] border border-dashed border-[#DCD7C6] rounded-lg flex items-center justify-center text-center px-1"><span class="text-[9px] text-[#a89f85] leading-tight">Appears after saving</span></div>`}
+        </div>
       </div>
       <div class="sm:col-span-2">
         <label class="lbl">Asset Name</label>
@@ -2008,6 +2138,7 @@ function renderStandardForm(e){
     <div class="flex flex-wrap gap-3 pt-2 border-t border-[#EFEBDD]">
       <button data-action="save-item" class="theme-bg text-white px-5 py-2.5 rounded-xl text-sm font-medium">Save Item</button>
       <button data-action="clear-form" class="px-5 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">Clear Form</button>
+      ${e.assetNumber ? `<button data-action="print-3app-single" class="px-5 py-2.5 rounded-xl border border-[#4C9D38] text-[#4C9D38] text-sm font-medium hover:bg-[#F1F7EE] flex items-center gap-2">${iconPrinter()}Print (3APP)</button>` : ''}
       ${e.id?`<button data-action="delete-item" class="px-5 py-2.5 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 ml-auto">Delete</button>`:''}
     </div>
   `;
@@ -2058,44 +2189,57 @@ function renderSplitForm(e){
 /* ---------------------------------------------------------------------------
    13. LIVE A4 PREVIEW RENDERER
 --------------------------------------------------------------------------- */
+/* Sheet size: A5 (half of A4, 148mm x 210mm portrait) — the sweet spot for a
+   single-asset internal reference sheet. A6 (quarter A4) was considered but
+   rejected: fitting a photo + ~9 detail fields + a readable asset number in
+   that little space would mean shrinking text past comfortable reading size
+   or dropping fields, which defeats the point of the sheet. This still cuts
+   paper use in half versus the old full-A4 version. Layout is a full-width
+   photo band up top (better use of a narrow page than the old side-by-side
+   split, which would leave the photo uselessly small at A5 width) followed
+   by a compact two-column field grid. Remarks is intentionally excluded when
+   forPrint is true — it stays visible wherever the item is otherwise shown
+   on screen, it's just left off the printed/exported sheet, per how this
+   template is actually used today. */
 function a4TemplateHtml(e, forPrint){
-  const logo = state.settings.logo ? `<img src="${state.settings.logo}" class="h-12 object-contain"/>` : '';
-  const img = e.imageSrc ? `<img src="${e.imageSrc}" class="w-full h-40 object-cover rounded-lg border border-[#E7E2D3] cursor-zoom-in" title="Click to view large" data-lightbox="1"/>` : `<div class="w-full h-40 rounded-lg border border-dashed border-[#DCD7C6] flex items-center justify-center text-[#c9c3ac] text-xs">No Image</div>`;
+  const logo = state.settings.logo ? `<img src="${state.settings.logo}" class="h-8 object-contain"/>` : '';
+  const img = e.imageSrc
+    ? `<img src="${e.imageSrc}" class="w-full h-[52mm] object-cover rounded-lg border border-[#E7E2D3] cursor-zoom-in" title="Click to view large" data-lightbox="1"/>`
+    : `<div class="w-full h-[52mm] rounded-lg border border-dashed border-[#DCD7C6] flex items-center justify-center text-[#c9c3ac] text-xs">No Image</div>`;
   const c = condMeta(e.condition);
+  const d = new Date();
+  const field = (label, value)=> `<p><span class="text-[#8a8471]">${label}:</span> ${value}</p>`;
   return `
-  <div class="flex items-start justify-between border-b-2 pb-4 mb-6" style="border-color:var(--theme-color)">
-    <div class="flex items-center gap-3">${logo}<div>
-      <p class="font-display font-bold text-lg">${escapeHtml(state.settings.companyName||'Company Name')}</p>
-      <p class="text-[10px] text-[#8a8471]">${escapeHtml(state.settings.address||'')}</p>
-      <p class="text-[10px] text-[#8a8471]">${[state.settings.phone,state.settings.email,state.settings.website].filter(Boolean).map(escapeHtml).join(' · ')}</p>
-    </div></div>
-    <div class="text-right">
-      <p class="text-[10px] uppercase tracking-wider font-semibold" style="color:var(--theme-color)">Asset Manifest</p>
-      <p class="font-mono text-xs mt-1">${e.assetNumber || 'PENDING'}</p>
+  <div class="flex items-center justify-between border-b-2 pb-2 mb-3" style="border-color:var(--theme-color)">
+    <div class="flex items-center gap-2 min-w-0">${logo}<p class="font-display font-bold text-sm truncate">${escapeHtml(state.settings.companyName||'Company Name')}</p></div>
+    <div class="text-right shrink-0 pl-2">
+      <p class="text-[9px] uppercase tracking-wider font-semibold" style="color:var(--theme-color)">Asset Sheet</p>
+      <p class="font-mono text-[11px]">${e.assetNumber || 'PENDING'}</p>
     </div>
   </div>
-  <div class="grid grid-cols-3 gap-6">
-    <div>${img}</div>
-    <div class="col-span-2 space-y-2">
-      <p class="font-display font-semibold text-xl">${escapeHtml(e.name)||'Untitled Asset'}</p>
-      <div class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] mt-2">
-        <p><span class="text-[#8a8471]">Category:</span> ${escapeHtml(e.category)}${e.subCategory ? ' / '+escapeHtml(e.subCategory) : ''}</p>
-        <p><span class="text-[#8a8471]">Location:</span> ${escapeHtml(e.location)}</p>
-        <p><span class="text-[#8a8471]">Quantity:</span> ${e.qty}</p>
-        <p><span class="text-[#8a8471]">Condition:</span> <span class="px-2 py-0.5 rounded-full ${c.cls}">${e.condition}</span></p>
-        <p><span class="text-[#8a8471]">Purchase Price:</span> ${fmtMoney(e.purchasePrice)}</p>
-        <p><span class="text-[#8a8471]">Purchase Date:</span> ${fmtDate(e.purchaseDate)}</p>
-        <p class="col-span-2"><span class="text-[#8a8471]">Vendor:</span> ${escapeHtml(e.vendor)||'—'}</p>
-        <p><span class="text-[#8a8471]">Last Updated:</span> ${fmtDate(e.lastUpdated||nowISO())}</p>
-      </div>
-      <div class="mt-2">
-        <p class="text-[#8a8471] text-[11px]">Notes:</p>
-        <p class="text-[11px]">${escapeHtml(e.notes)||'—'}</p>
-      </div>
-      ${e.remarks ? `<div class="mt-2"><p class="text-[#8a8471] text-[11px]">Remarks:</p><p class="text-[11px]">${escapeHtml(e.remarks)}</p></div>` : ''}
+  ${img}
+  <p class="font-display font-semibold text-base mt-3">${escapeHtml(e.name)||'Untitled Asset'}</p>
+  <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] mt-2">
+    ${field('Category', escapeHtml(e.category)+(e.subCategory ? ' / '+escapeHtml(e.subCategory) : ''))}
+    ${field('Location', escapeHtml(e.location))}
+    ${field('Quantity', e.qty)}
+    ${field('Condition', `<span class="px-1.5 py-0.5 rounded-full ${c.cls}">${e.condition}</span>`)}
+    ${field('Purchase Price', fmtMoney(e.purchasePrice))}
+    ${field('Purchase Date', fmtDate(e.purchaseDate))}
+    ${field('Vendor', escapeHtml(e.vendor)||'—')}
+    ${field('Last Updated', fmtDate(e.lastUpdated||nowISO()))}
+  </div>
+  <div class="mt-2">
+    <p class="text-[#8a8471] text-[10px]">Notes:</p>
+    <p class="text-[10px]">${escapeHtml(e.notes)||'—'}</p>
+  </div>
+  ${(!forPrint && e.remarks) ? `<div class="mt-2"><p class="text-[#8a8471] text-[10px]">Remarks:</p><p class="text-[10px]">${escapeHtml(e.remarks)}</p></div>` : ''}
+  <div class="mt-4 pt-2 border-t text-[8px] leading-relaxed" style="border-color:var(--theme-color); color:var(--theme-color)">
+    <p>Internal use only · Printed ${d.toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'})} at ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</p>
+    <div class="mt-2 flex items-end gap-2 text-[#8a8471]">
+      <span>Signature:</span><span class="flex-1 border-b border-[#c9c3ac] h-3"></span>
     </div>
   </div>
-  ${a4FooterHtml(1,1)}
   `;
 }
 function a4FooterHtml(page, total){
@@ -2256,6 +2400,9 @@ function bindViewEvents(){
   document.querySelectorAll('[data-action="new-item"], [data-action="new-item-here"]').forEach(b=>{
     b.addEventListener('click', ()=>openEditor(null));
   });
+  document.querySelectorAll('[data-action="scan-qr"]').forEach(b=>{
+    b.addEventListener('click', openQrScanner);
+  });
   document.querySelectorAll('[data-nav]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const v = btn.getAttribute('data-nav');
@@ -2383,6 +2530,9 @@ function bindViewEvents(){
   if(clearBtn) clearBtn.addEventListener('click', ()=>openEditor(state.editing.id ? state.editing : null, { baseAssetNumber: state.editorBaseAssetNumber }));
   const delBtn = document.querySelector('[data-action="delete-item"]');
   if(delBtn) delBtn.addEventListener('click', deleteCurrentItem);
+  const printSingleBtn = document.querySelector('[data-action="print-3app-single"]');
+  if(printSingleBtn) printSingleBtn.addEventListener('click', ()=>print3appSingle(state.editing));
+  renderAssetQrCode();
   const saveSplitBtn = document.querySelector('[data-action="save-split"]');
   if(saveSplitBtn) saveSplitBtn.addEventListener('click', saveSplit);
 
@@ -2570,11 +2720,15 @@ function bindHistoryRowActions(){
   }));
   document.querySelectorAll('[data-hist-print]').forEach(b=>b.addEventListener('click', ()=>{
     const rec = state.history.find(h=>h.id===b.getAttribute('data-hist-print'));
-    if(rec) printSingle(rec);
+    if(!rec) return;
+    const live = state.assets.find(a=>a.id===rec.assetNumber || (a.assetNumber===rec.assetNumber && a.condition===rec.condition));
+    printSingle(live || rec);
   }));
   document.querySelectorAll('[data-hist-pdf]').forEach(b=>b.addEventListener('click', ()=>{
     const rec = state.history.find(h=>h.id===b.getAttribute('data-hist-pdf'));
-    if(rec) exportSinglePdf(rec);
+    if(!rec) return;
+    const live = state.assets.find(a=>a.id===rec.assetNumber || (a.assetNumber===rec.assetNumber && a.condition===rec.condition));
+    exportSinglePdf(live || rec);
   }));
   document.querySelectorAll('[data-hist-del]').forEach(b=>b.addEventListener('click', async ()=>{
     const id = b.getAttribute('data-hist-del');
@@ -2915,12 +3069,28 @@ function renderPrintView(){
       </div>
     </section>
 
+    <section class="bg-white rounded-2xl border border-[#4C9D38] p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-1">
+        <p class="text-sm font-display font-semibold" style="color:var(--theme-color)">3 Assets Per Page (3APP)</p>
+        <p id="p-3app-selected-count" class="text-xs text-[#8a8471]">${rows.filter(r=>state.printSelection.selectedIds.has(r.id)).length} selected</p>
+      </div>
+      <p class="text-xs text-[#8a8471] mb-3">Tick the assets below (photo + full details each, 3 per A4 page) — then preview or download.</p>
+      <div class="flex flex-wrap gap-3">
+        <button id="p-3app-view" class="px-4 py-2.5 rounded-xl border border-[#4C9D38] text-[#4C9D38] text-sm font-medium hover:bg-[#F1F7EE] disabled:opacity-60 disabled:cursor-wait flex items-center gap-2">${iconEye()} Preview 3APP PDF</button>
+        <button id="p-3app-download" class="px-4 py-2.5 rounded-xl theme-bg text-white text-sm font-medium disabled:opacity-60 disabled:cursor-wait">Download 3APP PDF</button>
+      </div>
+    </section>
+
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5">
-      <p class="text-xs font-semibold uppercase tracking-wider text-[#a89f85] mb-3">Manifest Preview — ${rows.length} item${rows.length===1?'':'s'} ${state.printSelection.location==='all'?'(all locations)':'in '+escapeHtml(state.printSelection.location)}</p>
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <p class="text-xs font-semibold uppercase tracking-wider text-[#a89f85]">Manifest Preview — ${rows.length} item${rows.length===1?'':'s'} ${state.printSelection.location==='all'?'(all locations)':'in '+escapeHtml(state.printSelection.location)}</p>
+        ${rows.length ? `<button id="p-select-all-toggle" class="text-xs font-medium" style="color:var(--theme-color)">${rows.every(r=>state.printSelection.selectedIds.has(r.id)) ? 'Clear selection' : 'Select all shown'}</button>` : ''}
+      </div>
       ${rows.length ? `<div class="overflow-auto max-h-[520px] border border-[#EFEBDD] rounded-lg">
-        <table class="w-full text-xs min-w-[600px]">
+        <table class="w-full text-xs min-w-[640px]">
           <thead class="sticky top-0 bg-white"><tr class="text-left text-[11px] uppercase tracking-wider text-[#a89f85] border-b border-[#EFEBDD]">
-            <th class="py-2 pr-3 pl-3">Photo</th><th class="py-2 pr-3">Asset #</th><th class="py-2 pr-3">Name</th><th class="py-2 pr-3">Category</th><th class="py-2 pr-3">Location</th><th class="py-2 pr-3">Qty</th><th class="py-2 pr-3">Condition</th>
+            <th class="py-2 pl-3 pr-1 w-8"><input type="checkbox" id="p-select-all-checkbox" ${rows.length && rows.every(r=>state.printSelection.selectedIds.has(r.id)) ? 'checked' : ''}/></th>
+            <th class="py-2 pr-3">Photo</th><th class="py-2 pr-3">Asset #</th><th class="py-2 pr-3">Name</th><th class="py-2 pr-3">Category</th><th class="py-2 pr-3">Location</th><th class="py-2 pr-3">Qty</th><th class="py-2 pr-3">Condition</th>
           </tr></thead>
           <tbody>
             ${rows.map(r=>{
@@ -2930,7 +3100,8 @@ function renderPrintView(){
                 ? `<img src="${escapeHtml(photoSrc)}" class="w-8 h-8 rounded object-cover border border-[#E7E2D3] cursor-zoom-in" title="Click to view large" data-lightbox="1" onerror="this.outerHTML='<span class=&quot;text-[10px] text-red-400&quot;>Broken</span>'"/>`
                 : `<span class="text-[10px] text-[#c9c3ac]">— No Image</span>`;
               return `<tr class="border-b border-[#F5F2E8] last:border-0">
-                <td class="py-2 pr-3 pl-3">${photoCell}</td>
+                <td class="py-2 pl-3 pr-1"><input type="checkbox" data-select-print="${r.id}" ${state.printSelection.selectedIds.has(r.id)?'checked':''}/></td>
+                <td class="py-2 pr-3">${photoCell}</td>
                 <td class="py-2 pr-3 font-mono">${r.assetNumber}</td><td class="py-2 pr-3">${escapeHtml(r.name)}</td>
                 <td class="py-2 pr-3">${escapeHtml(r.category)}</td><td class="py-2 pr-3">${escapeHtml(r.location)}</td>
                 <td class="py-2 pr-3 font-mono">${r.qty}</td><td class="py-2 pr-3"><span class="px-2 py-0.5 rounded-full ${c.cls}">${r.condition}</span></td>
@@ -3096,6 +3267,49 @@ function bindPrintViewEvents(){
   bind('p-pdf','click', ()=>printManifest(true));
   bind('p-pdf-images-view','click', ()=>viewManifestPdfWithImages());
   bind('p-pdf-images','click', ()=>downloadManifestPdfWithImages());
+  bind('p-3app-view','click', ()=>run3appPdf(sortedFilteredAssets().filter(r=>state.printSelection.selectedIds.has(r.id)), 'view'));
+  bind('p-3app-download','click', ()=>run3appPdf(sortedFilteredAssets().filter(r=>state.printSelection.selectedIds.has(r.id)), 'download'));
+  document.querySelectorAll('[data-select-print]').forEach(cb=>cb.addEventListener('change', ()=>{
+    const id = cb.getAttribute('data-select-print');
+    if(cb.checked) state.printSelection.selectedIds.add(id); else state.printSelection.selectedIds.delete(id);
+    updatePrintSelectionSummary();
+  }));
+  bind('p-select-all-checkbox','change', e=>{
+    const rows = sortedFilteredAssets();
+    if(e.target.checked) rows.forEach(r=>state.printSelection.selectedIds.add(r.id));
+    else rows.forEach(r=>state.printSelection.selectedIds.delete(r.id));
+    syncPrintRowCheckboxes();
+    updatePrintSelectionSummary();
+  });
+  bind('p-select-all-toggle','click', ()=>{
+    const rows = sortedFilteredAssets();
+    const allSelected = rows.length && rows.every(r=>state.printSelection.selectedIds.has(r.id));
+    if(allSelected) rows.forEach(r=>state.printSelection.selectedIds.delete(r.id));
+    else rows.forEach(r=>state.printSelection.selectedIds.add(r.id));
+    syncPrintRowCheckboxes();
+    updatePrintSelectionSummary();
+  });
+}
+/* Selection toggles in Print & Export used to call the global render(), which
+   rebuilds the whole view's innerHTML — including the scrollable asset list
+   (`overflow-auto max-h-[520px]`), snapping it back to the top on every tick.
+   These two helpers update just the checkboxes/counters/labels that actually
+   change, in place, so the scroll position a manager was at is preserved. */
+function syncPrintRowCheckboxes(){
+  document.querySelectorAll('[data-select-print]').forEach(cb=>{
+    cb.checked = state.printSelection.selectedIds.has(cb.getAttribute('data-select-print'));
+  });
+}
+function updatePrintSelectionSummary(){
+  const rows = sortedFilteredAssets();
+  const selectedCount = rows.filter(r=>state.printSelection.selectedIds.has(r.id)).length;
+  const countEl = document.getElementById('p-3app-selected-count');
+  if(countEl) countEl.textContent = `${selectedCount} selected`;
+  const allSelected = rows.length>0 && rows.every(r=>state.printSelection.selectedIds.has(r.id));
+  const toggleBtn = document.getElementById('p-select-all-toggle');
+  if(toggleBtn) toggleBtn.textContent = allSelected ? 'Clear selection' : 'Select all shown';
+  const headerCb = document.getElementById('p-select-all-checkbox');
+  if(headerCb) headerCb.checked = allSelected;
 }
 
 /* ---------------------------------------------------------------------------
@@ -4139,7 +4353,7 @@ function buildManifestHtml(rows){
 }
 
 function printSingle(item){
-  renderPrintRoot(a4TemplateHtml(item, true));
+  renderPrintRoot(a4TemplateHtml(item, true), true);
   setTimeout(()=>window.print(), 150);
 }
 /* Google Drive's thumbnail/image endpoints generally don't send the CORS
@@ -4193,15 +4407,18 @@ async function resolveImageElement(url){
 /* Loads a (possibly cross-origin) image URL and returns a PNG data URL, or
    null on any failure — used to embed the company logo in the native PDF
    without letting a CORS/network hiccup abort the whole export. */
+/* Returns {url, w, h} (natural pixel size included) rather than a bare data
+   URL, so every caller can scale the image into its target box preserving
+   its true aspect ratio instead of stretching it to fill a fixed box. */
 async function loadImageDataUrl(url){
   if(!url) return null;
   const img = await resolveImageElement(url);
-  if(!img){ return null; }
+  if(!img || !img.naturalWidth || !img.naturalHeight){ if(img && img.__objectUrl) URL.revokeObjectURL(img.__objectUrl); return null; }
   try{
     const c = document.createElement('canvas');
     c.width = img.naturalWidth; c.height = img.naturalHeight;
     c.getContext('2d').drawImage(img,0,0);
-    return c.toDataURL('image/png');
+    return { url: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight };
   }catch(e){ return null; }
   finally{ if(img.__objectUrl) URL.revokeObjectURL(img.__objectUrl); }
 }
@@ -4266,8 +4483,14 @@ function drawManifestHeader(doc, ctx, opts){
   const { reportTitle, locLabel, itemCount, pageWidth } = opts;
   let y = marginX;
   if(logoDataUrl){
-    const logoW = 22, logoH = 14;
-    try{ doc.addImage(logoDataUrl, 'PNG', (pageWidth-logoW)/2, y - 5, logoW, logoH, undefined, 'FAST'); }catch(e){}
+    // Reserved box stays 22x16mm (keeps prepareManifestHeader's layout math
+    // unchanged), but the logo itself is scaled to fit that box at its own
+    // true aspect ratio (1:1, never stretched) and centered within it.
+    const boxW = 22, boxH = 14;
+    const scale = Math.min(boxW/logoDataUrl.w, boxH/logoDataUrl.h);
+    const w = logoDataUrl.w*scale, h = logoDataUrl.h*scale;
+    const lx = (pageWidth-w)/2, ly = (y - 5) + (boxH-h)/2;
+    try{ doc.addImage(logoDataUrl.url, 'PNG', lx, ly, w, h, undefined, 'FAST'); }catch(e){}
     y += 16;
   }
   doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(33,38,31);
@@ -4408,7 +4631,7 @@ async function runManifestImagesPdf(mode){
   }
   const btnId = mode==='view' ? 'p-pdf-images-view' : 'p-pdf-images';
   const btn = document.getElementById(btnId);
-  const originalLabel = btn ? btn.textContent : '';
+  const originalLabel = btn ? btn.innerHTML : '';
   if(btn){ btn.disabled = true; btn.textContent = `Loading photos… 0/${rows.length}`; }
   try{
     const doc = await buildManifestPdfWithImagesDoc(rows, (done,total)=>{
@@ -4422,7 +4645,287 @@ async function runManifestImagesPdf(mode){
   } catch(err){
     showToast('Could not build the photo PDF: '+err.message, 'error');
   } finally {
-    if(btn){ btn.disabled = false; btn.textContent = originalLabel; }
+    if(btn){ btn.disabled = false; btn.innerHTML = originalLabel; }
+  }
+}
+/* ---------------------------------------------------------------------------
+   3APP — "3 Assets Per Page" reference sheet.
+   Full A4 page (0.75in margins), a shared letterhead header and a shared
+   footer (both capped at 1in tall) repeated once per page, with the space in
+   between divided into exactly 3 equal asset rows — each row: a square (1:1)
+   photo sitting at the left margin, full asset detail to its right, and a
+   thin rule separating it from the row below. Unlike the data-table manifest
+   PDF (autoTable) or the photo-manifest grid, this is a custom card-style
+   layout, so it's drawn directly with jsPDF primitives (text/line/addImage)
+   rather than autoTable. Remarks is intentionally left off — same reasoning
+   as the single-asset A5 sheet: this is a compact reference format, and
+   Remarks is treated as internal-only detail that isn't needed on a printed
+   page. Company disclaimer text moved into the shared page footer (previously
+   sat inside each asset's own block) since it only needs to appear once per
+   page, not once per asset.
+
+   Same Asset Number can exist as several records that only differ by
+   condition/qty (a Split creates exactly this — e.g. 260194 as Usable 48 /
+   Unusable 3 / Damaged 5). Printing each of those as its own row is
+   misleading (looks like 3 different assets sharing a number), so before
+   laying out rows/pages we collapse any selection sharing an Asset Number
+   into a single block carrying a small per-condition qty breakdown instead
+   of one flat Condition/Qty pair. --------------------------------------- */
+function mergeRowsByAssetNumber(rows){
+  const groups = {}, order = [];
+  rows.forEach(r=>{
+    const key = r.assetNumber || ('__id_'+r.id);
+    if(!groups[key]){ groups[key] = []; order.push(key); }
+    groups[key].push(r);
+  });
+  return order.map(key=>{
+    const group = groups[key];
+    if(group.length===1) return group[0];
+    const base = group.find(g=>g.condition==='Usable') || group[0];
+    const totalQty = group.reduce((s,g)=>s+Number(g.qty||0),0);
+    const mostRecent = group.reduce((l,g)=> (!l || new Date(g.lastUpdated) > new Date(l.lastUpdated)) ? g : l, null);
+    const withPhoto = group.find(g=>assetPhotoSrc(g));
+    const noteParts = group.map(g=>g.notes).filter(Boolean);
+    return Object.assign({}, base, {
+      qty: totalQty,
+      lastUpdated: mostRecent ? mostRecent.lastUpdated : base.lastUpdated,
+      notes: noteParts.length ? noteParts.join('  ·  ') : '',
+      imageSrc: withPhoto ? withPhoto.imageSrc : base.imageSrc,
+      _conditionBreakdown: group
+        .slice()
+        .sort((a,b)=>String(a.condition).localeCompare(String(b.condition)))
+        .map(g=>({ condition: g.condition, qty: Number(g.qty||0) })),
+    });
+  });
+}
+async function build3appPdfDoc(rowsIn, onProgress){
+  const rows = mergeRowsByAssetNumber(rowsIn);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p','mm','a4');
+  const pageWidth = 210, pageHeight = 297, margin = 19.05; // 0.75in
+  const contentW = pageWidth - margin*2;
+  const headerH = 20, footerH = 16; // both well under the 1in (25.4mm) cap
+  const rowsAreaH = pageHeight - margin*2 - headerH - footerH;
+  const perPage = 3;
+  const rowH = rowsAreaH / perPage;
+  const imgSize = rowH - 5; // square photo, sized to fit the row with a little breathing room
+  const gap = 4;
+  const detailsX = margin + imgSize + gap;
+  const detailsW = contentW - imgSize - gap;
+
+  const photoMetas = new Array(rows.length).fill(null);
+  const batchSize = 6;
+  for(let i=0; i<rows.length; i+=batchSize){
+    const batch = rows.slice(i, i+batchSize);
+    const results = await Promise.all(batch.map(r=> loadImageDataUrlWithSize(assetPhotoSrc(r), 480, 0.75)));
+    results.forEach((res,j)=>{ photoMetas[i+j] = res; });
+    if(onProgress) onProgress(Math.min(i+batchSize, rows.length), rows.length);
+  }
+  const logoDataUrl = await loadImageDataUrl(state.settings.logo);
+
+  const drawHeader = ()=>{
+    let x = margin;
+    if(logoDataUrl){
+      // Fit within a 16x11mm box at the logo's own aspect ratio (1:1, never
+      // stretched) — x advances only as far as the logo actually rendered.
+      const boxW = 16, boxH = 11;
+      const scale = Math.min(boxW/logoDataUrl.w, boxH/logoDataUrl.h);
+      const w = logoDataUrl.w*scale, h = logoDataUrl.h*scale;
+      const ly = (margin-2) + (boxH-h)/2;
+      try{ doc.addImage(logoDataUrl.url, 'PNG', margin, ly, w, h, undefined, 'FAST'); x = margin + boxW + 3; }catch(e){}
+    }
+    doc.setFont('helvetica','bold'); doc.setFontSize(11.5); doc.setTextColor(33,38,31);
+    doc.text(state.settings.companyName||'Company Name', x, margin+2);
+    doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(138,132,113);
+    doc.text(state.settings.address||'', x, margin+6);
+    doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(76,157,56);
+    doc.text('ASSET REFERENCE SHEET', pageWidth-margin, margin+2, {align:'right'});
+    const contactLine = [state.settings.phone, state.settings.email].filter(Boolean).join('  ·  ');
+    if(contactLine){ doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(138,132,113); doc.text(contactLine, pageWidth-margin, margin+6, {align:'right'}); }
+    doc.setDrawColor(76,157,56); doc.setLineWidth(0.5);
+    doc.line(margin, margin+headerH-4, pageWidth-margin, margin+headerH-4);
+  };
+  const drawFooter = (pageNum, totalPages)=>{
+    const fy = pageHeight - margin - footerH + 5;
+    doc.setDrawColor(231,226,211); doc.setLineWidth(0.2);
+    doc.line(margin, fy-3, pageWidth-margin, fy-3);
+    doc.setFont('helvetica','italic'); doc.setFontSize(6.5); doc.setTextColor(76,157,56);
+    doc.text('This report contains proprietary inventory data intended solely for authorized internal review and management purposes.', margin, fy, { maxWidth: contentW });
+    doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(140,140,140);
+    doc.text(`Page ${pageNum} of ${totalPages}`, margin, pageHeight-margin+9);
+    const printedAt = new Date();
+    doc.text(`Printed ${printedAt.toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'})}, ${printedAt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`, pageWidth-margin, pageHeight-margin+9, {align:'right'});
+  };
+  const fieldLine = (label, val, x, y, w)=>{
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.3); doc.setTextColor(138,132,113);
+    doc.text(label+':', x, y);
+    doc.setTextColor(33,38,31);
+    doc.text(String(val==null||val===''?'—':val), x+17, y, { maxWidth: w-17 });
+  };
+  // Small colored pill for a single condition, using that condition's own
+  // badge colors (bg/text) so it reads the same as the on-screen badge.
+  const drawConditionPill = (label, x, y)=>{
+    const meta = condMeta(label);
+    const [br,bg,bb] = hexToRgb(meta.bg);
+    const [tr,tg,tb] = hexToRgb(meta.text);
+    doc.setFont('helvetica','bold'); doc.setFontSize(6.6);
+    const text = label || '—';
+    const tw = doc.getTextWidth(text);
+    const padX = 1.5, pillH = 3.6;
+    doc.setFillColor(br,bg,bb);
+    doc.roundedRect(x, y-pillH+0.9, tw+padX*2, pillH, 0.7, 0.7, 'F');
+    doc.setTextColor(tr,tg,tb);
+    doc.text(text, x+padX, y-0.4);
+    return tw + padX*2;
+  };
+  // Row of "Condition qty" pills for a merged multi-condition asset — wraps
+  // to further lines within maxW as needed. Returns the y of the last line
+  // drawn, so the caller knows how much extra height to account for.
+  const drawConditionBreakdown = (breakdown, x, y, maxW)=>{
+    let cx = x, cy = y;
+    const lineH = 4.6, gapX = 2;
+    breakdown.forEach(b=>{
+      const meta = condMeta(b.condition);
+      const [br,bg,bb] = hexToRgb(meta.bg);
+      const [tr,tg,tb] = hexToRgb(meta.text);
+      const text = `${b.condition}  ${b.qty}`;
+      doc.setFont('helvetica','bold'); doc.setFontSize(6.6);
+      const tw = doc.getTextWidth(text);
+      const padX = 1.5, pillH = 3.6, pillW = tw+padX*2;
+      if(cx > x && cx+pillW > x+maxW){ cx = x; cy += lineH; }
+      doc.setFillColor(br,bg,bb);
+      doc.roundedRect(cx, cy-pillH+0.9, pillW, pillH, 0.7, 0.7, 'F');
+      doc.setTextColor(tr,tg,tb);
+      doc.text(text, cx+padX, cy-0.4);
+      cx += pillW + gapX;
+    });
+    return cy;
+  };
+  const drawRow = (item, meta, rowIndex)=>{
+    const rowY = margin + headerH + rowIndex*rowH;
+    if(meta){
+      const scale = Math.min(imgSize/meta.w, imgSize/meta.h, 1);
+      const w = meta.w*scale, h = meta.h*scale;
+      const ix = margin + (imgSize-w)/2, iy = rowY + (imgSize-h)/2;
+      try{ doc.addImage(meta.url, 'JPEG', ix, iy, w, h, undefined, 'FAST'); }catch(e){}
+    } else {
+      doc.setDrawColor(220,215,198); doc.setLineWidth(0.3);
+      doc.rect(margin, rowY, imgSize, imgSize);
+      doc.setFont('helvetica','italic'); doc.setFontSize(7); doc.setTextColor(180,176,160);
+      doc.text('No Image', margin+imgSize/2, rowY+imgSize/2, {align:'center'});
+    }
+    let dy = rowY + 5;
+    doc.setFont('helvetica','bold'); doc.setFontSize(10.5); doc.setTextColor(33,38,31);
+    doc.text(item.name||'Untitled Asset', detailsX, dy, { maxWidth: detailsW*0.65 });
+    doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(76,157,56);
+    doc.text(item.assetNumber||'—', detailsX+detailsW, dy, {align:'right'});
+    dy += 5.5;
+    const col1X = detailsX, col2X = detailsX + detailsW/2, colW = detailsW/2 - 2;
+    const isMerged = item._conditionBreakdown && item._conditionBreakdown.length > 1;
+    fieldLine('Category', (item.category||'—')+(item.subCategory ? ' / '+item.subCategory : ''), col1X, dy, colW*1.6);
+    dy += 4;
+    fieldLine('Location', item.location, col1X, dy, colW);
+    fieldLine(isMerged ? 'Total Qty' : 'Qty', item.qty, col2X, dy, colW); dy += 4;
+    if(isMerged){
+      // Multi-condition asset (a Split): one condition/qty pill per split,
+      // in place of a single Condition value — this is the "merged" block.
+      doc.setFont('helvetica','normal'); doc.setFontSize(7.3); doc.setTextColor(138,132,113);
+      doc.text('Conditions:', col1X, dy);
+      const lastY = drawConditionBreakdown(item._conditionBreakdown, col1X+22, dy, detailsW-22);
+      dy = lastY + 4.6;
+      fieldLine('Updated', fmtDate(item.lastUpdated), col1X, dy, colW); dy += 4;
+    } else {
+      doc.setFont('helvetica','normal'); doc.setFontSize(7.3); doc.setTextColor(138,132,113);
+      doc.text('Condition:', col1X, dy);
+      drawConditionPill(item.condition, col1X+17, dy);
+      fieldLine('Updated', fmtDate(item.lastUpdated), col2X, dy, colW); dy += 4;
+    }
+    fieldLine('Price', fmtMoney(item.purchasePrice), col1X, dy, colW);
+    fieldLine('Purch. Date', fmtDate(item.purchaseDate), col2X, dy, colW); dy += 4;
+    fieldLine('Vendor', item.vendor, col1X, dy, detailsW);
+    dy += 4.5;
+    if(item.notes){
+      doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(138,132,113);
+      doc.text('Notes:', detailsX, dy);
+      doc.setTextColor(33,38,31);
+      doc.setFontSize(6.8);
+      const notesLines = doc.splitTextToSize(String(item.notes), detailsW - 12);
+      // Print the full note, capped only by genuinely available room to the
+      // bottom of this row (row height is generous — ~3 lines is typical
+      // headroom left even with every field above filled in; anything past
+      // that is the rare case where a note is truly too long for the page).
+      const rowBottom = rowY + rowH - 2.5;
+      const lineH = 3.0;
+      const maxLines = Math.max(1, Math.floor((rowBottom - dy) / lineH));
+      let shown = notesLines;
+      if(notesLines.length > maxLines){
+        shown = notesLines.slice(0, maxLines);
+        const last = shown[shown.length-1] || '';
+        shown[shown.length-1] = last.replace(/.{0,1}$/, '') + '…';
+      }
+      doc.text(shown, detailsX+12, dy, { lineHeightFactor: 1.15 });
+    }
+  };
+
+  const totalPages = Math.max(1, Math.ceil(rows.length/perPage));
+  rows.forEach((item, idx)=>{
+    const pageIdx = Math.floor(idx/perPage);
+    const rowIndex = idx % perPage;
+    if(rowIndex===0 && pageIdx>0) doc.addPage();
+    if(rowIndex>0){
+      const sepY = margin + headerH + rowIndex*rowH;
+      doc.setDrawColor(231,226,211); doc.setLineWidth(0.2);
+      doc.line(margin, sepY, pageWidth-margin, sepY);
+    }
+    drawRow(item, photoMetas[idx], rowIndex);
+  });
+  for(let p=1; p<=totalPages; p++){ doc.setPage(p); drawHeader(); drawFooter(p, totalPages); }
+  return doc;
+}
+async function run3appPdf(rows, mode){
+  if(!rows.length){ showToast('Select at least one asset to generate the 3-per-page sheet.','error'); return; }
+  if(!state.cloud.connected || !state.cloud.accessToken){
+    showToast('Sign in to Google Drive first — photos need an authenticated connection to load into the PDF.','error');
+    return;
+  }
+  const btnId = mode==='view' ? 'p-3app-view' : 'p-3app-download';
+  const btn = document.getElementById(btnId);
+  const originalLabel = btn ? btn.innerHTML : '';
+  // Note: the button's running count reflects merged asset blocks (same
+  // Asset Number across conditions collapses into one), so it can read
+  // lower than the number of ticked rows — that's expected.
+  if(btn){ btn.disabled = true; btn.textContent = 'Loading photos…'; }
+  try{
+    const doc = await build3appPdfDoc(rows, (done,total)=>{
+      if(btn) btn.textContent = `Loading photos… ${done}/${total}`;
+    });
+    if(mode==='view'){
+      window.open(doc.output('bloburl'), '_blank');
+    } else {
+      doc.save(`gaia-lake-3app-${new Date().toISOString().slice(0,10)}.pdf`);
+    }
+  }catch(err){
+    showToast('Could not build the 3-per-page sheet: '+err.message, 'error');
+  } finally {
+    if(btn){ btn.disabled = false; btn.innerHTML = originalLabel; }
+  }
+}
+/* Called from the Edit Item form's Print button — a 1-item 3APP PDF (one row
+   filled, the other two slots on the page simply left blank; no special-case
+   layout needed since that's genuinely what "3 per page" looks like with a
+   single item). Opens straight in a new tab rather than downloading, so it
+   can be printed or saved from the browser's own PDF viewer in one step. */
+async function print3appSingle(item){
+  if(!item || !item.assetNumber){ showToast('Save this item first — it needs an asset number before it can be printed.','error'); return; }
+  if(!state.cloud.connected || !state.cloud.accessToken){
+    showToast('Sign in to Google Drive first — photos need an authenticated connection to load into the PDF.','error');
+    return;
+  }
+  try{
+    const doc = await build3appPdfDoc([item]);
+    window.open(doc.output('bloburl'), '_blank');
+  }catch(err){
+    showToast('Could not build the print sheet: '+err.message, 'error');
   }
 }
 async function printManifest(asPdf){
@@ -4442,17 +4945,23 @@ function viewManifestPdf(){
     window.open(doc.output('bloburl'), '_blank');
   });
 }
-function renderPrintRoot(html){
+function renderPrintRoot(html, compact){
   let root = document.getElementById('print-root');
   if(!root){
     root = document.createElement('div');
     root.id = 'print-root';
     document.body.appendChild(root);
   }
+  root.classList.toggle('compact-sheet', !!compact);
   root.innerHTML = `<div class="bg-white">${html}</div>`;
 }
 async function exportSinglePdf(item){
-  await exportPdfFromHtml(a4TemplateHtml(item, true), `${item.assetNumber||'asset'}-manifest.pdf`, 'download');
+  // A5 (148x210mm) — see a4TemplateHtml for why this is the sweet spot size.
+  // This is the guaranteed-correct-size path: unlike the browser Print button,
+  // which depends on the device/browser choosing to honor the @page size,
+  // this sets the PDF's actual page dimensions directly, so it always comes
+  // out as a true A5 file regardless of what device generated it.
+  await exportPdfFromHtml(a4TemplateHtml(item, true), `${item.assetNumber||'asset'}-sheet.pdf`, 'download', { format:'a5', widthMM:148, heightMM:210, marginMM:10 });
 }
 function summaryCardStandaloneHtml(){
   const period = periodConditionSummary(dashPeriod);
@@ -4498,31 +5007,33 @@ async function downloadSummaryCardImage(){
     document.body.removeChild(holder);
   }
 }
-async function exportPdfFromHtml(html, filename, mode){
+async function exportPdfFromHtml(html, filename, mode, page){
+  // Defaults preserve the previous A4 behavior for any other caller.
+  page = page || { format:'a4', widthMM:210, heightMM:297, marginMM:19.05 };
   mode = mode || 'download';
   renderPrintRoot(html);
   const root = document.getElementById('print-root');
-  root.style.position='fixed'; root.style.left='-9999px'; root.style.top='0'; root.style.width='210mm';
+  root.style.position='fixed'; root.style.left='-9999px'; root.style.top='0'; root.style.width=page.widthMM+'mm';
   root.classList.remove('hidden');
   await new Promise(r=>setTimeout(r,80));
   try{
     const canvas = await html2canvas(root, { scale:2, useCORS:true, backgroundColor:'#ffffff' });
     const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF('p','mm','a4');
-    const pageWidth = 210, pageHeight = 297;
-    const margin = 19.05; // 0.75in safe margin on every side, matching the browser Print output
+    const pdf = new jsPDF('p','mm', page.format);
+    const pageWidth = page.widthMM, pageHeight = page.heightMM;
+    const margin = page.marginMM;
     const contentWidth = pageWidth - margin*2;
     const contentHeight = pageHeight - margin*2;
     const imgWidth = contentWidth;
     const imgHeight = canvas.height * imgWidth / canvas.width;
-    let heightLeft = imgHeight, position = margin, page = 1;
+    let heightLeft = imgHeight, position = margin, page_ = 1;
     const totalPages = Math.max(1, Math.ceil(imgHeight/contentHeight));
     pdf.addImage(canvas.toDataURL('image/jpeg',0.92), 'JPEG', margin, position, imgWidth, imgHeight);
     heightLeft -= contentHeight;
     while(heightLeft > 0){
       position = margin - (imgHeight - heightLeft);
       pdf.addPage();
-      page++;
+      page_++;
       pdf.addImage(canvas.toDataURL('image/jpeg',0.92), 'JPEG', margin, position, imgWidth, imgHeight);
       heightLeft -= contentHeight;
     }
