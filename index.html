@@ -191,7 +191,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.25</span>
+      <span id="sidebar-version">v4.26</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -223,7 +223,7 @@ or redistribution is strictly prohibited.
       <nav id="mobile-nav" class="space-y-1"></nav>
       <div class="pt-3 mt-2 border-t sidebar-border" id="cloud-sidebar-slot-mobile"></div>
       <div class="pt-3 mt-2 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between">
-        <span id="mobile-sidebar-version">v4.25</span>
+        <span id="mobile-sidebar-version">v4.26</span>
         <span class="grip-dot theme-bg"></span>
       </div>
     </div>
@@ -259,7 +259,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.25</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.26</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -1050,6 +1050,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.26', date: nowISO(), type:'patch', summary:'Fixed automatic backups creating duplicate files when more than one device (phone, PC, etc.) is signed in and runs its backup check around the same time.',
+    detail:'Each device tracked its own last-backup-run date locally, so when two devices were open and signed in around the same day, each one independently created a brand new Drive file for that day/week/month, even though a good one already existed. Google Drive itself allows several files to share the exact same name, so this did not fail loudly, it just quietly produced 2-3 duplicate objects per period. Google Drive for Desktop then has to disambiguate those identically-named files when it downloads them onto an actual Windows folder, which is where the "(1)" and "(2)" suffixes seen in the Backup folder came from. Fixed by making the backup write idempotent: before saving, it now looks for a file already named exactly right for that period, updates that one in place instead of creating a new one, and removes any leftover duplicates it finds along the way. This self-heals the existing clutter automatically the next time any signed-in device runs its backup check, and prevents new duplicates going forward no matter how many devices are open at once.' },
   { version:'4.25', date: nowISO(), type:'minor', summary:'Added automatic daily/weekly/monthly full-database backups to a Backup folder on Drive, plus continued digging on the "JSON not updating" report — this update on its own does not explain a report of the live file staying untouched for many days, see the note below.',
     detail:'New Automatic Backups panel in Settings: a complete point-in-time snapshot (assets, History, Settings, changelog) now saves itself to My Drive/WebApps/AssetsApp/Backup — one file per day, one per ISO week, and one per calendar month — every time the app is open and signed in, with old copies rotated out automatically (14 daily, 8 weekly, 12 monthly kept). A Run Backup Now button and a status line showing the last daily/weekly/monthly run date were added alongside it. This is separate from, and does not replace, the live-sync JSON files. Important note on the ongoing "JSON file is not updating" report: a screenshot showed the live gaia_lake_inventory.json and gaia_Asset_history_archive.json on Drive genuinely unchanged for around two weeks even though items were being added during that window in the app. The two most likely explanations are (1) the browser tab in use has been open a long time and is still running an old, pre-fix build of the code from before v4.23, or (2) the updated files from v4.22 through v4.24 have not yet been uploaded to the live GitHub Pages site. A hard refresh (or fully closing and reopening the browser tab) after confirming the live site is on v4.25 is the next thing to try, and the version number shown in the sidebar after that refresh confirms which build is actually running.' },
   { version:'4.24', date: nowISO(), type:'patch', summary:'Fixed the "Last synced" and history-archive timestamps on the Settings page not updating even though the underlying JSON was syncing correctly the whole time.',
@@ -1168,6 +1170,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.23'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.24'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.25'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.26'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1207,7 +1210,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.25', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.26', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -4594,6 +4597,33 @@ async function createFileInFolder(name, payload, folderId){
     method:'POST', headers:{ 'Content-Type': `multipart/related; boundary=${boundary}` }, body
   });
 }
+/* Drive allows several files to share the exact same name (only the id is
+   unique) — so when two devices independently run checkAutoBackups() for
+   the same day/week/month, each one blindly POSTing a new file produced 2-3
+   Drive objects all named e.g. "gaia-lake-backup-daily-2026-09-03.json".
+   Google Drive for Desktop then has to disambiguate those identically-named
+   objects when it materializes them onto an actual filesystem, which is
+   where the "(1)", "(2)" suffixes the user saw came from — that renaming
+   happens locally on download, not something this app ever wrote.
+   findOrDedupeFileInFolder() makes the whole operation idempotent no matter
+   which/how many devices are running it concurrently: it looks for a file
+   already named exactly this for this period, deletes any extra duplicates
+   already sitting there (self-healing past clutter the moment any device
+   runs the check next), and returns the one id runAutoBackup should update
+   — so a given period only ever has one Drive object, however many devices
+   happen to check in around the same time. */
+async function findOrDedupeFileInFolder(name, folderId){
+  const q = encodeURIComponent(`name='${name.replace(/'/g,"\\'")}' and '${folderId}' in parents and trashed=false`);
+  const data = await driveFetchJson(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,modifiedTime)&orderBy=modifiedTime desc&spaces=drive`);
+  const files = data.files || [];
+  if(!files.length) return null;
+  const [keep, ...dupes] = files; // most-recently-modified copy wins; older duplicates get removed
+  for(const d of dupes){
+    try{ await driveFetchJson(`https://www.googleapis.com/drive/v3/files/${d.id}`, { method:'DELETE' }); }
+    catch(e){ console.error('[backup] could not remove duplicate', d.id, e); }
+  }
+  return keep.id;
+}
 async function pruneOldBackups(prefix, keep){
   try{
     const folderId = await getOrCreateBackupFolderId();
@@ -4610,7 +4640,14 @@ async function pruneOldBackups(prefix, keep){
 async function runAutoBackup(period, filename){
   const folderId = await getOrCreateBackupFolderId();
   const payload = buildFullBackupPayload();
-  await createFileInFolder(filename, payload, folderId);
+  const existingId = await findOrDedupeFileInFolder(filename, folderId);
+  if(existingId){
+    await driveFetchJson(`https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=media&fields=id,modifiedTime`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload)
+    });
+  } else {
+    await createFileInFolder(filename, payload, folderId);
+  }
   const keep = period==='daily' ? 14 : period==='weekly' ? 8 : 12; // monthly: keep a year's worth
   await pruneOldBackups(`gaia-lake-backup-${period}-`, keep);
 }
