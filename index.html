@@ -191,7 +191,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.22</span>
+      <span id="sidebar-version">v4.25</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -223,7 +223,7 @@ or redistribution is strictly prohibited.
       <nav id="mobile-nav" class="space-y-1"></nav>
       <div class="pt-3 mt-2 border-t sidebar-border" id="cloud-sidebar-slot-mobile"></div>
       <div class="pt-3 mt-2 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between">
-        <span id="mobile-sidebar-version">v4.22</span>
+        <span id="mobile-sidebar-version">v4.25</span>
         <span class="grip-dot theme-bg"></span>
       </div>
     </div>
@@ -234,7 +234,7 @@ or redistribution is strictly prohibited.
     <div class="max-w-[1400px] mx-auto p-4 lg:p-5">
       <div id="cloud-offline-banner" class="hidden no-print items-center gap-2 text-[12.5px] font-medium rounded-xl px-4 py-2.5 mb-4">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M12 9v4M12 17h.01M10.29 3.86l-8.18 14.18A2 2 0 003.82 21h16.36a2 2 0 001.71-2.96L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-        <span>Running Offline: Sign In to sync live database data.</span>
+        <span id="cloud-offline-banner-text">Running Offline: Sign In to sync live database data.</span>
       </div>
       <div id="view-root"></div>
     </div>
@@ -259,7 +259,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.22</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.25</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -493,6 +493,16 @@ function idbPut(storeName,value){
   return withStore(storeName, "readwrite", (store,resolve,reject)=>{
     const req = store.put(value);
     req.onsuccess = ()=>{ resolve(value); scheduleCloudPush(storeName, value); };
+    req.onerror = (e)=>reject(e.target.error);
+  });
+}
+/* Same as idbPut but skips scheduleCloudPush — for local-only bookkeeping
+   (e.g. the autoBackup last-run tracker) that should never itself trigger
+   a push of the live synced JSON. */
+function idbPutRaw(storeName,value){
+  return withStore(storeName, "readwrite", (store,resolve,reject)=>{
+    const req = store.put(value);
+    req.onsuccess = ()=>resolve(value);
     req.onerror = (e)=>reject(e.target.error);
   });
 }
@@ -742,6 +752,23 @@ async function getOrCreateDeletedImagesFolderId(){
   cachedDeletedImagesFolderId = created.id;
   return cachedDeletedImagesFolderId;
 }
+/* Sibling folder to ItemsImages/Items Deleted — \My Drive\WebApps\AssetsApp\Backup
+   — holding automatic daily/weekly/monthly full-database snapshots (see
+   AUTOMATIC BACKUPS below, near the sync functions). */
+let cachedBackupFolderId = null;
+async function getOrCreateBackupFolderId(){
+  if(cachedBackupFolderId) return cachedBackupFolderId;
+  const q = encodeURIComponent(`name='Backup' and '${state.cloud.folderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const data = await driveFetchJson(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&spaces=drive`);
+  if(data.files && data.files[0]){ cachedBackupFolderId = data.files[0].id; return cachedBackupFolderId; }
+  const created = await driveFetchJson('https://www.googleapis.com/drive/v3/files?fields=id', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ name:'Backup', mimeType:'application/vnd.google-apps.folder', parents:[state.cloud.folderId] })
+  });
+  cachedBackupFolderId = created.id;
+  return cachedBackupFolderId;
+}
+
 /* On asset deletion (single, bulk-selected, or Delete All), a Method
    C-managed Drive photo is MOVED into "Items Deleted" rather than deleted
    outright — nothing is ever permanently removed automatically; the
@@ -934,7 +961,7 @@ const state = {
   editing: null,                // asset object currently in editor, or null (new)
   editorBaseAssetNumber: null,  // when adding batch / splitting, the group we're working on
   splitMode: false,
-  printSelection: { location:'all', sortBy:'name', selectedIds:new Set() },
+  printSelection: { location:'all', sortBy:'name', selectedIds:new Set(), qrCategory:'all', qrLocation:'all' },
   navExpanded: {},
   selectMode: false,
   selectedGroups: new Set(),
@@ -946,6 +973,7 @@ const state = {
     accessToken:null, tokenExpiresAt:0,
     syncing:false, applyingRemote:false, lastSync:null, lastRemoteModified:null,
     dirty:false, syncReady:false,                  // syncReady only flips true once the initial post-login pull has landed — blocks any push before that
+    needsReconnect:false,                          // true when a background token refresh fails — surfaced via the banner/sidebar instead of silently going dark (see ensureFreshAccessToken)
     historyLoaded:false, historySyncing:false, historySyncReady:false, historyDirty:false,
     lastHistorySync:null, lastHistoryRemoteModified:null,
   },
@@ -1022,6 +1050,12 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.25', date: nowISO(), type:'minor', summary:'Added automatic daily/weekly/monthly full-database backups to a Backup folder on Drive, plus continued digging on the "JSON not updating" report — this update on its own does not explain a report of the live file staying untouched for many days, see the note below.',
+    detail:'New Automatic Backups panel in Settings: a complete point-in-time snapshot (assets, History, Settings, changelog) now saves itself to My Drive/WebApps/AssetsApp/Backup — one file per day, one per ISO week, and one per calendar month — every time the app is open and signed in, with old copies rotated out automatically (14 daily, 8 weekly, 12 monthly kept). A Run Backup Now button and a status line showing the last daily/weekly/monthly run date were added alongside it. This is separate from, and does not replace, the live-sync JSON files. Important note on the ongoing "JSON file is not updating" report: a screenshot showed the live gaia_lake_inventory.json and gaia_Asset_history_archive.json on Drive genuinely unchanged for around two weeks even though items were being added during that window in the app. The two most likely explanations are (1) the browser tab in use has been open a long time and is still running an old, pre-fix build of the code from before v4.23, or (2) the updated files from v4.22 through v4.24 have not yet been uploaded to the live GitHub Pages site. A hard refresh (or fully closing and reopening the browser tab) after confirming the live site is on v4.25 is the next thing to try, and the version number shown in the sidebar after that refresh confirms which build is actually running.' },
+  { version:'4.24', date: nowISO(), type:'patch', summary:'Fixed the "Last synced" and history-archive timestamps on the Settings page not updating even though the underlying JSON was syncing correctly the whole time.',
+    detail:'Root cause: the "Last synced HH:MM:SS" line (and a matching new "History archive last synced" line) on the Settings page was only ever written once, at whatever moment that page\'s template last rendered. A background push or pull correctly updated the sync dot/status word (via setCloudStatus) and correctly wrote the new content to gaia_lake_inventory.json / gaia_Asset_history_archive.json on Drive — but that one specific timestamp paragraph never got touched again until the user navigated off Settings and back, so it looked frozen even while every sync underneath it was succeeding. Both timestamp lines now have their own element and patch themselves directly on every push, pull, and reconnect (active file, history archive, and the case where another device\'s change gets pulled in) instead of waiting for a full page re-render.' },
+  { version:'4.23', date: nowISO(), type:'patch', summary:'Fixed Notes repeating 2-3x on a merged multi-condition 3APP block, added a true 1"×1" QR Code Label sheet (Category/Location filters, name+location+number under each code) for pasting on physical assets, made the in-app QR code click-to-enlarge for scanning, and hardened Google Drive sync so a silently-expired session can no longer leave the live JSON (or the history archive) stuck stale without any visible warning.',
+    detail:'Notes: the 3APP merge step used to join every condition-split\'s note even when they were identical copies of the same text (common when a Split just carries the note forward) — printing the same sentence 2-3 times. Now dedupes by trimmed text before joining, so a shared note prints once. QR Labels: new "QR Code Labels" section on Print & Export generates a grid of true 1"×1" (25.4mm) QR codes on A4, each with the asset name/location/number printed underneath for identification, filterable by Category and/or Location with a live match count, previewable or downloadable — works fully offline (no photo/Drive dependency) and dedupes by Asset Number so a Split doesn\'t print 3 near-identical labels for one physical item. QR Enlarge: the QR code on the Edit Item form is now clickable, opening a 260x260px enlarged view (reusing the same lightbox pattern as photo zoom) that a phone camera can actually focus on and scan, with the asset name/number shown underneath. Cloud sync (critical): traced a real failure chain — the ~1hr access token\'s background silent refresh had no retry if it ever failed once (a blocked silent prompt, a backgrounded browser tab, an expired session), so refreshing simply stopped forever; meanwhile the periodic 20-second sync poll silently swallowed ALL errors including auth failures, and "connected" was never reset to false on failure, so the sidebar kept showing green "Live-synced" indefinitely while every push to both gaia_lake_inventory.json and gaia_Asset_history_archive.json quietly failed in the background — exactly matching "JSON not updating with no warning". Fixed with a proactive ensureFreshAccessToken() check before every sync call, automatic retry-with-backoff on a failed refresh instead of giving up permanently, and a new visible "Reconnect needed" state (banner + red sidebar dot) the moment a refresh genuinely fails, replacing the silent, permanently-stale "Live-synced" label.' },
   { version:'4.22', date: nowISO(), type:'patch', summary:'Six corrections to the 3APP reference sheet — true 1:1 logo sizing, condition color-coding, full Notes text, one merged block per Asset Number with a condition/qty breakdown instead of duplicate rows, and a Print & Export selection list that no longer jumps to the top on every tick.',
     detail:'Logo now prints at its true aspect ratio everywhere it appears in a generated PDF (3APP header and the Full Manifest / PDF with Images letterhead) instead of being stretched into a fixed box. The 3APP header title is now "ASSET REFERENCE SHEET" in all caps, with the "3 Per Page" subtitle removed. Condition is now shown as a small colored pill on the 3APP sheet, using each condition\'s own badge color (matching the on-screen Usable/Unusable/Damaged/etc. colors) instead of plain black text. The Notes field is no longer hard-capped at 2 lines — it now prints as much of the note as fits the generous row height, only truncating with an ellipsis in the rare case a note is genuinely too long for the space. Biggest change: when the assets selected for a 3APP sheet include the same Asset Number split across multiple conditions (e.g. one number with separate Usable/Unusable/Damaged quantity records), those are now merged into a single asset block with one condition/qty pill per split, instead of printing as several near-identical, confusingly-numbered rows. Finally, ticking a checkbox, using Select All, or clearing selection in Print & Export no longer re-renders the whole page — it updates the selection count and checkboxes in place, so the scrollable asset list stays exactly where you left it.' },
   { version:'4.21', date: nowISO(), type:'minor', summary:'New "3 Assets Per Page" (3APP) print/PDF format, QR codes on every asset (auto-generated + scannable from the Dashboard), and a fix for assets showing as "Untitled Asset" when printed from History.',
@@ -1131,6 +1165,9 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.20'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.21'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.22'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.23'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.24'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.25'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1170,7 +1207,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.22', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.25', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -1901,8 +1938,43 @@ function closeImageLightbox(){
    photo everywhere just needs the data-lightbox="1" marker to opt in. */
 document.addEventListener('click', (ev)=>{
   const img = ev.target.closest('img[data-lightbox]');
-  if(img && img.src) openImageLightbox(img.src);
+  if(img && img.src){ openImageLightbox(img.src); return; }
+  const qr = ev.target.closest('[data-qr-zoom]');
+  if(qr) openQrLightbox(qr.getAttribute('data-qr-number'), qr.getAttribute('data-qr-label'));
 });
+/* Enlarged, scannable QR view — the in-app QR (76x76px, sized to fit the
+   Edit Item form) is too small for a phone camera to reliably lock onto.
+   Clicking it re-renders the same code at a size a camera can actually
+   focus on, with the asset name/number underneath so it's clear which
+   asset it belongs to before scanning or printing. */
+function openQrLightbox(assetNumber, label){
+  if(!assetNumber) return;
+  let lb = document.getElementById('qr-lightbox');
+  if(!lb){
+    lb = document.createElement('div');
+    lb.id = 'qr-lightbox';
+    lb.className = 'fixed inset-0 z-[999] bg-black/85 flex items-center justify-center p-6 cursor-zoom-out';
+    lb.innerHTML = `<div id="qr-lightbox-card" class="bg-white rounded-2xl shadow-2xl p-6 flex flex-col items-center cursor-auto max-w-[90vw]">
+        <div id="qr-lightbox-code" class="bg-white p-2"></div>
+        <p id="qr-lightbox-label" class="mt-3 text-sm font-display font-semibold text-[#212623] text-center"></p>
+        <p id="qr-lightbox-number" class="text-xs font-mono text-[#8a8471] text-center"></p>
+      </div>
+      <button id="qr-lightbox-close" type="button" aria-label="Close" class="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-2xl leading-none">&times;</button>`;
+    lb.addEventListener('click', (ev)=>{ if(!ev.target.closest('#qr-lightbox-card')) closeQrLightbox(); });
+    document.body.appendChild(lb);
+    document.addEventListener('keydown', (ev)=>{ if(ev.key==='Escape') closeQrLightbox(); });
+  }
+  const codeEl = document.getElementById('qr-lightbox-code');
+  codeEl.innerHTML = '';
+  try{ new QRCode(codeEl, { text: assetNumber, width:260, height:260, correctLevel: QRCode.CorrectLevel.M }); }catch(e){}
+  document.getElementById('qr-lightbox-label').textContent = label || '';
+  document.getElementById('qr-lightbox-number').textContent = assetNumber;
+  lb.style.display = 'flex';
+}
+function closeQrLightbox(){
+  const lb = document.getElementById('qr-lightbox');
+  if(lb) lb.style.display = 'none';
+}
 function iconEdit(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>`; }
 function iconDup(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`; }
 function iconTrash(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6"/></svg>`; }
@@ -2053,7 +2125,7 @@ function renderStandardForm(e){
         <div class="shrink-0 text-center">
           <label class="lbl block mb-1">QR Code</label>
           ${e.assetNumber
-            ? `<div id="f-qr-code" class="w-[76px] h-[76px] bg-white border border-[#E7E2D3] rounded-lg flex items-center justify-center p-1"></div>`
+            ? `<div id="f-qr-code" class="w-[76px] h-[76px] bg-white border border-[#E7E2D3] rounded-lg flex items-center justify-center p-1 cursor-zoom-in" title="Click to enlarge / scan" data-qr-zoom data-qr-number="${escapeHtml(e.assetNumber)}" data-qr-label="${escapeHtml(e.name||'')}"></div>`
             : `<div class="w-[76px] h-[76px] border border-dashed border-[#DCD7C6] rounded-lg flex items-center justify-center text-center px-1"><span class="text-[9px] text-[#a89f85] leading-tight">Appears after saving</span></div>`}
         </div>
       </div>
@@ -2972,8 +3044,18 @@ function renderSettingsView(){
         <button id="s-cloud-sync-now" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] ${state.cloud.connected?'':'hidden'}" ${state.cloud.connected?'':'disabled'}>Sync Now</button>
         ${state.cloud.userEmail ? `<span class="text-xs text-[#8a8471]">Signed in as ${escapeHtml(state.cloud.userEmail)}</span>` : ''}
       </div>
-      <p class="text-[11px] text-[#a89f85]">${state.cloud.lastSync ? 'Last synced ' + fmtDateTime(new Date(state.cloud.lastSync)) : 'Not yet synced with the shared folder.'}${state.cloud.dirty ? ' · Changes pending push…' : ''}${state.cloud.lastPushError ? ` · <span class="text-red-500">Last push error: ${escapeHtml(state.cloud.lastPushError)}</span>` : ''}</p>
+      <p id="cloud-last-sync-text" class="text-[11px] text-[#a89f85]">${state.cloud.lastSync ? 'Last synced ' + fmtDateTime(new Date(state.cloud.lastSync)) : 'Not yet synced with the shared folder.'}${state.cloud.dirty ? ' · Changes pending push…' : ''}${state.cloud.lastPushError ? ` · <span class="text-red-500">Last push error: ${escapeHtml(state.cloud.lastPushError)}</span>` : ''}</p>
     </section>` : adminLockNotice('Cloud Connection Workspace')}
+
+    ${admin ? `
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-3">
+      <p class="font-display font-semibold">Automatic Backups</p>
+      <p class="text-xs text-[#8a8471]">Separate from the live sync above — a full point-in-time snapshot (assets, History, Settings, changelog) is saved automatically to <code class="font-mono">\\My Drive\\WebApps\\AssetsApp\\Backup</code> on Drive: one per day, one per ISO week, and one per calendar month, each rotating out its own oldest copies (last 14 daily, 8 weekly, 12 monthly kept). Runs in the background whenever the app is open and signed in — no setup needed.</p>
+      <div class="flex flex-wrap items-center gap-3">
+        <button id="s-backup-now" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] ${state.cloud.connected?'':'opacity-60 cursor-not-allowed'}" ${state.cloud.connected?'':'disabled'}>Run Backup Now</button>
+      </div>
+      <p id="cloud-backup-status-text" class="text-[11px] text-[#a89f85]">Checking backup status…</p>
+    </section>` : adminLockNotice('Automatic Backups')}
 
     ${admin ? `
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
@@ -3025,13 +3107,26 @@ function renderSettingsView(){
           <button id="s-whatsnew" class="text-xs px-3 py-1.5 rounded-lg theme-bg text-white font-medium">Download WhatsNew.txt</button>
         </div>
       </div>
+      <p id="cloud-last-history-sync-text" class="text-[11px] text-[#a89f85]">${state.cloud.connected ? (state.cloud.historyLoaded ? (state.cloud.lastHistorySync ? 'History archive last synced ' + fmtDateTime(new Date(state.cloud.lastHistorySync)) : 'History archive connected — waiting for first sync.') : 'History archive loads the first time you open History or this page.') : 'Sign in to Google Drive to sync the history archive (gaia_Asset_history_archive.json).'}${state.cloud.historyDirty ? ' · Changes pending push…' : ''}</p>
       <div class="max-h-72 overflow-y-auto scroll-thin">${changelogHtml}</div>
     </section>
   </div>`;
 }
 
+/* Shared by renderPrintView (for the on-screen filtered count) and the QR
+   Labels Preview/Download buttons, so the two never drift apart. */
+function qrLabelRowsForFilter(){
+  return mergeRowsByAssetNumber(
+    state.assets.filter(a=> (state.printSelection.qrCategory==='all' || a.category===state.printSelection.qrCategory)
+                          && (state.printSelection.qrLocation==='all' || a.location===state.printSelection.qrLocation))
+  ).slice().sort((a,b)=> String(a.name||'').localeCompare(String(b.name||'')));
+}
 function renderPrintView(){
   const rows = sortedFilteredAssets();
+  // A Split shares one Asset Number across several condition records — a
+  // physical label is per Asset Number, not per condition, so dedupe the
+  // same way the 3APP merge does before counting/generating labels.
+  const qrLabelRows = qrLabelRowsForFilter();
   return `
   <div class="space-y-5 max-w-3xl">
     <div>
@@ -3078,6 +3173,32 @@ function renderPrintView(){
       <div class="flex flex-wrap gap-3">
         <button id="p-3app-view" class="px-4 py-2.5 rounded-xl border border-[#4C9D38] text-[#4C9D38] text-sm font-medium hover:bg-[#F1F7EE] disabled:opacity-60 disabled:cursor-wait flex items-center gap-2">${iconEye()} Preview 3APP PDF</button>
         <button id="p-3app-download" class="px-4 py-2.5 rounded-xl theme-bg text-white text-sm font-medium disabled:opacity-60 disabled:cursor-wait">Download 3APP PDF</button>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl border border-[#4C9D38] p-5">
+      <p class="text-sm font-display font-semibold mb-1" style="color:var(--theme-color)">QR Code Labels</p>
+      <p class="text-xs text-[#8a8471] mb-3">1"×1" QR labels to print and stick on the physical assets — each carries the asset name, location and number underneath so it's clear which asset it belongs to. Filter by Category and/or Location, then preview or download.</p>
+      <div class="grid sm:grid-cols-2 gap-4 mb-3">
+        <div>
+          <label class="lbl">Category</label>
+          <select id="p-qr-category" class="inp">
+            <option value="all" ${state.printSelection.qrCategory==='all'?'selected':''}>All Categories</option>
+            ${CATEGORIES.map(c=>`<option value="${escapeHtml(c.name)}" ${state.printSelection.qrCategory===c.name?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="lbl">Location</label>
+          <select id="p-qr-location" class="inp">
+            <option value="all" ${state.printSelection.qrLocation==='all'?'selected':''}>All Locations</option>
+            ${LOCATIONS.map(l=>`<option value="${escapeHtml(l.name)}" ${state.printSelection.qrLocation===l.name?'selected':''}>${escapeHtml(l.name)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <p class="text-xs text-[#8a8471] mb-3">${qrLabelRows.length} label${qrLabelRows.length===1?'':'s'} match${qrLabelRows.length===1?'es':''} this filter.</p>
+      <div class="flex flex-wrap gap-3">
+        <button id="p-qr-view" class="px-4 py-2.5 rounded-xl border border-[#4C9D38] text-[#4C9D38] text-sm font-medium hover:bg-[#F1F7EE] disabled:opacity-60 disabled:cursor-wait flex items-center gap-2">${iconEye()} Preview QR Labels</button>
+        <button id="p-qr-download" class="px-4 py-2.5 rounded-xl theme-bg text-white text-sm font-medium disabled:opacity-60 disabled:cursor-wait">Download QR Labels</button>
       </div>
     </section>
 
@@ -3256,6 +3377,8 @@ function bindSettingsEvents(){
   });
   bind('s-cloud-signin','click', ()=>{ state.cloud.connected ? cloudSignOut() : cloudSignIn(); });
   bind('s-cloud-sync-now','click', ()=>cloudManualSync());
+  bind('s-backup-now','click', ()=>runManualBackupNow());
+  updateAutoBackupStatusUI();
 }
 
 function bindPrintViewEvents(){
@@ -3269,6 +3392,10 @@ function bindPrintViewEvents(){
   bind('p-pdf-images','click', ()=>downloadManifestPdfWithImages());
   bind('p-3app-view','click', ()=>run3appPdf(sortedFilteredAssets().filter(r=>state.printSelection.selectedIds.has(r.id)), 'view'));
   bind('p-3app-download','click', ()=>run3appPdf(sortedFilteredAssets().filter(r=>state.printSelection.selectedIds.has(r.id)), 'download'));
+  bind('p-qr-category','change', e=>{ state.printSelection.qrCategory = e.target.value; render(); });
+  bind('p-qr-location','change', e=>{ state.printSelection.qrLocation = e.target.value; render(); });
+  bind('p-qr-view','click', ()=>runQrLabelsPdf(qrLabelRowsForFilter(), 'view'));
+  bind('p-qr-download','click', ()=>runQrLabelsPdf(qrLabelRowsForFilter(), 'download'));
   document.querySelectorAll('[data-select-print]').forEach(cb=>cb.addEventListener('change', ()=>{
     const id = cb.getAttribute('data-select-print');
     if(cb.checked) state.printSelection.selectedIds.add(id); else state.printSelection.selectedIds.delete(id);
@@ -3872,9 +3999,10 @@ async function saveCloudConfigToDB(){
 function renderCloudSidebarHtml(){
   const c = state.cloud;
   if(c.connected){
+    const statusText = c.syncing ? 'Syncing…' : (c.needsReconnect ? 'Reconnect needed' : 'Live-synced');
     return `<div class="flex items-center gap-2 px-1 mb-2 text-[11px] sidebar-muted">
-        <span class="cloud-dot ${c.syncing?'busy':'on'}" id="cloud-dot-sidebar"></span>
-        <span class="truncate flex-1">${c.syncing?'Syncing…':'Live-synced'}${c.userEmail?' · '+escapeHtml(c.userEmail):''}</span>
+        <span class="cloud-dot ${c.syncing?'busy':(c.needsReconnect?'off':'on')}" id="cloud-dot-sidebar"></span>
+        <span class="truncate flex-1">${statusText}${c.userEmail?' · '+escapeHtml(c.userEmail):''}</span>
         <button data-cloud-refresh class="p-1 rounded hover:bg-white/10 shrink-0" title="Sync now" aria-label="Sync now">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-2.64-6.36M21 3v6h-6"/></svg>
         </button>
@@ -3901,8 +4029,20 @@ function renderCloudSidebar(){
 }
 function updateCloudBanner(){
   const banner = document.getElementById('cloud-offline-banner');
+  const textEl = document.getElementById('cloud-offline-banner-text');
   if(!banner) return;
-  const show = !state.cloud.connected || !navigator.onLine;
+  // Previously this only checked state.cloud.connected — but a token could
+  // silently fail to refresh in the background (see ensureFreshAccessToken)
+  // while state.cloud.connected stayed true forever, so the sidebar kept
+  // showing green "Live-synced" and this banner stayed hidden even though
+  // every push/pull had been failing for hours. needsReconnect now covers
+  // that case explicitly, so a broken sync is always visible on screen.
+  const show = !state.cloud.connected || state.cloud.needsReconnect || !navigator.onLine;
+  if(textEl){
+    textEl.textContent = state.cloud.needsReconnect && state.cloud.connected
+      ? 'Google Drive session expired — click Sync Now (or Sign Out/Sign In) to resume syncing.'
+      : 'Running Offline: Sign In to sync live database data.';
+  }
   banner.classList.toggle('hidden', !show);
   banner.classList.toggle('flex', show);
 }
@@ -3913,9 +4053,54 @@ function setCloudStatus(kind, text){
   if(label) label.textContent = text;
   const sideDot = document.getElementById('cloud-dot-sidebar');
   if(sideDot) sideDot.className = 'cloud-dot ' + kind;
+  updateCloudTimestampsUI();
+}
+/* The "Last synced ..."/"History archive last synced ..." lines on the
+   Settings page used to be written once, at whatever moment that page's
+   template last rendered — a background push/poll updated state.cloud.lastSync
+   correctly and even moved the little sync dot (via setCloudStatus above),
+   but this specific timestamp text never got touched again until the user
+   left Settings and came back. That looked exactly like "the JSON content
+   is updating but the timestamp isn't" even when sync was working the whole
+   time. Both lines now patch their own DOM node directly, so they read live
+   whether or not the page happens to be showing at that instant. */
+function updateCloudTimestampsUI(){
+  const activeEl = document.getElementById('cloud-last-sync-text');
+  if(activeEl){
+    activeEl.innerHTML = `${state.cloud.lastSync ? 'Last synced ' + fmtDateTime(new Date(state.cloud.lastSync)) : 'Not yet synced with the shared folder.'}${state.cloud.dirty ? ' · Changes pending push…' : ''}${state.cloud.lastPushError ? ` · <span class="text-red-500">Last push error: ${escapeHtml(state.cloud.lastPushError)}</span>` : ''}`;
+  }
+  const historyEl = document.getElementById('cloud-last-history-sync-text');
+  if(historyEl){
+    historyEl.innerHTML = `${state.cloud.connected ? (state.cloud.historyLoaded ? (state.cloud.lastHistorySync ? 'History archive last synced ' + fmtDateTime(new Date(state.cloud.lastHistorySync)) : 'History archive connected — waiting for first sync.') : 'History archive loads the first time you open History or this page.') : 'Sign in to Google Drive to sync the history archive (gaia_Asset_history_archive.json).'}${state.cloud.historyDirty ? ' · Changes pending push…' : ''}`;
+  }
 }
 
-/* ---- OAuth (Google Identity Services) ------------------------------------ */
+/* ---- OAuth (Google Identity Services) -------------------------------------
+   CRITICAL FIX (v4.23): state.cloud.connected used to be set true on sign-in
+   and then NEVER reset except by an explicit Sign Out — so once the ~1hr
+   access token expired, if the background silent refresh failed even once
+   (e.g. a blocked silent prompt, a closed/backgrounded tab throttling the
+   refresh timer, a revoked session), every future push/pull started failing
+   with 401 while the sidebar kept showing green "Live-synced" forever and
+   the offline banner never appeared — because nothing checked auth health,
+   and pollCloud()'s catch block silently swallowed ALL errors including 401s
+   by design (to avoid spamming toasts on transient network blips). That
+   combination is exactly what could make the Drive JSON (and the history
+   archive) quietly stop updating for hours or days with zero visible sign
+   anything was wrong.
+   Fix: a single ensureFreshAccessToken() gate that both pollCloud() and
+   pushToCloud()/pushHistoryToCloud() now call before touching Drive. It
+   proactively refreshes before the token actually expires, retries a failed
+   silent refresh with backoff instead of giving up forever, and — the key
+   part — flips a visible state.cloud.needsReconnect flag (banner + sidebar
+   dot go amber/red) the moment a refresh fails, instead of staying silently
+   "connected". */
+let tokenRefreshWaiters = [];
+let pendingInteractiveSignIn = false;
+function flushTokenWaiters(ok){
+  const waiters = tokenRefreshWaiters; tokenRefreshWaiters = [];
+  waiters.forEach(fn=>{ try{ fn(ok); }catch(e){} });
+}
 function attemptSilentCloudSignIn(){
   if(!state.cloud.clientId || !state.cloud.folderId){ updateCloudBanner(); return; }
   let tries = 0;
@@ -3927,7 +4112,7 @@ function attemptSilentCloudSignIn(){
         gisTokenClient = google.accounts.oauth2.initTokenClient({
           client_id: state.cloud.clientId, scope: CLOUD_SCOPES,
           callback: onCloudTokenResponse,
-          error_callback: ()=>{ updateCloudBanner(); }
+          error_callback: onCloudTokenError
         });
         gisTokenClient.__clientId = state.cloud.clientId;
         gisTokenClient.requestAccessToken({ prompt:'none' });
@@ -3947,38 +4132,84 @@ function cloudSignIn(){
     gisTokenClient = google.accounts.oauth2.initTokenClient({
       client_id: state.cloud.clientId, scope: CLOUD_SCOPES,
       callback: onCloudTokenResponse,
-      error_callback: (err)=>{ showToast('Google Sign-In failed: '+(err&&err.type?err.type:'unknown error'),'error'); }
+      error_callback: onCloudTokenError
     });
     gisTokenClient.__clientId = state.cloud.clientId;
   }
+  pendingInteractiveSignIn = true;
   gisTokenClient.requestAccessToken({ prompt:'consent' });
 }
 async function onCloudTokenResponse(resp){
-  if(!resp || !resp.access_token){ showToast('Google Sign-In did not return an access token.','error'); return; }
+  pendingInteractiveSignIn = false;
+  if(!resp || !resp.access_token){ showToast('Google Sign-In did not return an access token.','error'); flushTokenWaiters(false); return; }
   state.cloud.accessToken = resp.access_token;
   state.cloud.tokenExpiresAt = Date.now() + (Number(resp.expires_in||3600)*1000) - 60000;
   state.cloud.connected = true;
+  if(state.cloud.needsReconnect){ state.cloud.needsReconnect = false; setCloudStatus('on','Synced'); showToast('Google Drive reconnected — syncing resumed.','info'); }
+  updateCloudBanner(); renderCloudSidebar();
   scheduleTokenRefresh();
+  flushTokenWaiters(true);
   try{
     const profile = await driveFetchJson('https://www.googleapis.com/oauth2/v3/userinfo');
     state.cloud.userEmail = profile && profile.email ? profile.email : null;
   }catch(e){ /* non-fatal — email is cosmetic only */ }
-  showToast('Signed in to Google Drive.');
-  await cloudInitialConnect();
+  if(!state.cloud.syncReady){ showToast('Signed in to Google Drive.'); await cloudInitialConnect(); }
+  else { renderCloudSidebar(); }
+  updateCloudTimestampsUI();
+}
+function onCloudTokenError(err){
+  console.error('[cloud] Google token error:', err);
+  if(pendingInteractiveSignIn){
+    pendingInteractiveSignIn = false;
+    showToast('Google Sign-In failed: '+(err&&err.type?err.type:'unknown error'),'error');
+    flushTokenWaiters(false);
+    updateCloudBanner();
+    return;
+  }
+  // A background/silent refresh failed. Previously nothing rescheduled the
+  // next attempt here, so refreshing stopped forever after the first failure
+  // — retry with backoff instead, and make the broken state visible.
+  flushTokenWaiters(false);
+  if(state.cloud.connected){
+    state.cloud.needsReconnect = true;
+    setCloudStatus('off','Reconnect needed');
+    updateCloudBanner(); renderCloudSidebar();
+  }
+  clearTimeout(cloudRefreshTimer);
+  cloudRefreshTimer = setTimeout(()=>{ if(gisTokenClient && state.cloud.connected) gisTokenClient.requestAccessToken({ prompt:'none' }); }, 45000);
 }
 function scheduleTokenRefresh(){
   clearTimeout(cloudRefreshTimer);
   const ms = Math.max(5000, state.cloud.tokenExpiresAt - Date.now());
-  cloudRefreshTimer = setTimeout(()=>{ if(gisTokenClient) gisTokenClient.requestAccessToken({ prompt:'' }); }, ms);
+  cloudRefreshTimer = setTimeout(()=>{ if(gisTokenClient) gisTokenClient.requestAccessToken({ prompt:'none' }); }, ms);
+}
+/* Proactively ensures the access token is valid before a Drive call is made
+   — closes the gap left if the background setTimeout refresh above got
+   throttled (backgrounded tab), delayed, or already failed. Callers await
+   this instead of firing Drive requests against a token that may already be
+   stale, so a dead sync surfaces immediately (needsReconnect) rather than as
+   a string of quietly-swallowed 401s. */
+async function ensureFreshAccessToken(){
+  if(!state.cloud.connected || !gisTokenClient) return false;
+  if(state.cloud.accessToken && Date.now() < state.cloud.tokenExpiresAt) return true;
+  return new Promise((resolve)=>{
+    let settled = false;
+    tokenRefreshWaiters.push((ok)=>{ if(!settled){ settled = true; resolve(ok); } });
+    try{ gisTokenClient.requestAccessToken({ prompt:'none' }); }
+    catch(e){ if(!settled){ settled = true; resolve(false); } }
+    setTimeout(()=>{ if(!settled){ settled = true; resolve(!!state.cloud.accessToken && Date.now() < state.cloud.tokenExpiresAt); } }, 4000);
+  });
 }
 function cloudSignOut(){
   try{ if(state.cloud.accessToken && ensureGisReady()) google.accounts.oauth2.revoke(state.cloud.accessToken, ()=>{}); }catch(e){}
   state.cloud.connected = false; state.cloud.accessToken = null; state.cloud.userEmail = null;
+  state.cloud.needsReconnect = false;
   // Both gates must be re-earned by a fresh pull next sign-in — never carry a "safe to push" state across sessions.
   state.cloud.syncReady = false; state.cloud.historyLoaded = false; state.cloud.historySyncReady = false;
   clearTimeout(cloudRefreshTimer); clearInterval(cloudPollTimer);
   clearTimeout(cloudPushTimer); clearTimeout(historyPushTimer);
   setCloudStatus('off','Offline');
+  updateCloudBanner();
   showToast('Signed out of Google Drive.','info');
   render();
 }
@@ -4159,6 +4390,7 @@ async function cloudInitialConnect(){
     // Flush anything queued while the pull was in flight — safe now that
     // device memory has already been overwritten from Drive above.
     if(state.cloud.dirty) await pushToCloud();
+    checkAutoBackups().catch(err=>console.error('[backup] auto-backup check failed:', err));
   }catch(err){
     setCloudStatus('off','Error');
     showToast('Google Drive connection failed: '+err.message,'error');
@@ -4200,6 +4432,14 @@ async function pushToCloud(){
     console.log('[cloud] pushToCloud aborted at entry gate — will remain dirty until next retry.');
     return;
   }
+  const tokenOk = await ensureFreshAccessToken();
+  if(!tokenOk){
+    // Leave state.cloud.dirty=true so this retries automatically once
+    // reconnected (pollCloud's watchdog, or the next edit) — don't attempt
+    // the Drive call with a token we already know is stale.
+    console.log('[cloud] pushToCloud aborted — token refresh failed, will retry once reconnected.');
+    return;
+  }
   try{
     state.cloud.syncing = true; setCloudStatus('busy','Syncing…'); renderCloudSidebar();
     const payload = await buildActivePayload();
@@ -4208,11 +4448,13 @@ async function pushToCloud(){
     state.cloud.lastSync = nowISO();
     state.cloud.dirty = false;
     state.cloud.lastPushError = null;
+    if(state.cloud.needsReconnect){ state.cloud.needsReconnect = false; updateCloudBanner(); }
     setCloudStatus('on','Synced');
     console.log('[cloud] pushed to Drive successfully at '+state.cloud.lastSync+' (assets:'+payload.assets.length+')');
   }catch(err){
-    setCloudStatus('off','Sync error');
     state.cloud.lastPushError = err.message;
+    setCloudStatus('off','Sync error');
+    if(String(err.message||'').includes('Drive API 401')){ state.cloud.needsReconnect = true; updateCloudBanner(); }
     showToast('Cloud sync failed: '+err.message,'error');
     console.error('[cloud] pushToCloud failed:', err);
   } finally {
@@ -4247,6 +4489,7 @@ async function ensureHistoryCloudLoaded(){
     state.cloud.historyLoaded = true;
     state.cloud.historySyncReady = true;
     state.cloud.lastHistorySync = nowISO();
+    updateCloudTimestampsUI();
     if(state.cloud.historyDirty) await pushHistoryToCloud();
   }catch(err){
     showToast('Could not load the history archive from Google Drive: '+err.message,'error');
@@ -4256,6 +4499,8 @@ async function ensureHistoryCloudLoaded(){
 }
 async function pushHistoryToCloud(){
   if(!state.cloud.connected || !state.cloud.historyFileId || state.cloud.applyingRemote || !state.cloud.historySyncReady) return;
+  const tokenOk = await ensureFreshAccessToken();
+  if(!tokenOk){ console.log('[cloud] pushHistoryToCloud aborted — token refresh failed, will retry once reconnected.'); return; }
   try{
     state.cloud.historySyncing = true; renderCloudSidebar();
     const payload = buildHistoryPayload();
@@ -4263,14 +4508,24 @@ async function pushHistoryToCloud(){
     state.cloud.lastHistoryRemoteModified = updated.modifiedTime;
     state.cloud.lastHistorySync = nowISO();
     state.cloud.historyDirty = false;
+    if(state.cloud.needsReconnect){ state.cloud.needsReconnect = false; updateCloudBanner(); }
   }catch(err){
+    if(String(err.message||'').includes('Drive API 401')){ state.cloud.needsReconnect = true; updateCloudBanner(); }
     showToast('History archive sync failed: '+err.message,'error');
   } finally {
-    state.cloud.historySyncing = false; renderCloudSidebar();
+    state.cloud.historySyncing = false; renderCloudSidebar(); updateCloudTimestampsUI();
   }
 }
 async function pollCloud(){
   if(!state.cloud.connected || !state.cloud.fileId || state.cloud.syncing || state.cloud.applyingRemote) return;
+  const tokenOk = await ensureFreshAccessToken();
+  if(!tokenOk){
+    // Previously this whole poll silently swallowed a 401 here as a
+    // "transient" error and moved on, so a genuinely dead session (not a
+    // network blip) never surfaced anywhere on screen. Now it's explicit.
+    if(!state.cloud.needsReconnect){ state.cloud.needsReconnect = true; setCloudStatus('off','Reconnect needed'); updateCloudBanner(); renderCloudSidebar(); }
+    return;
+  }
   try{
     const meta = await getMasterFileMeta(state.cloud.fileId);
     if(meta.modifiedTime && meta.modifiedTime !== state.cloud.lastRemoteModified){
@@ -4278,11 +4533,16 @@ async function pollCloud(){
       await applyRemoteActiveData(remote);
       state.cloud.lastRemoteModified = meta.modifiedTime;
       state.cloud.lastSync = nowISO();
+      updateCloudTimestampsUI();
       showToast('Synced changes from another device.','info');
     }
+    if(state.cloud.needsReconnect){ state.cloud.needsReconnect = false; setCloudStatus('on','Synced'); updateCloudBanner(); renderCloudSidebar(); }
   }catch(err){
-    // Transient poll errors (e.g. expired token mid-refresh) are silent;
-    // the next successful poll or manual Sync Now will recover.
+    if(String(err.message||'').includes('Drive API 401')){
+      state.cloud.needsReconnect = true; setCloudStatus('off','Reconnect needed'); updateCloudBanner(); renderCloudSidebar();
+    }
+    // Other transient errors (e.g. a momentary network blip) stay silent;
+    // the next poll tick or a manual Sync Now recovers on its own.
   }
   // Watchdog: a push can get deferred (dirty=true) if it was attempted while a
   // pull was mid-flight or before syncReady flipped true, and nothing else was
@@ -4292,10 +4552,131 @@ async function pollCloud(){
     if(state.cloud.dirty && state.cloud.syncReady && !state.cloud.applyingRemote) await pushToCloud();
     if(state.cloud.historyLoaded && state.cloud.historyDirty && state.cloud.historySyncReady && !state.cloud.applyingRemote) await pushHistoryToCloud();
   }catch(err){ /* pushToCloud/pushHistoryToCloud already surface their own errors */ }
+  try{ await checkAutoBackups(); }catch(err){ console.error('[backup] auto-backup check failed:', err); }
+}
+/* ---------------------------------------------------------------------------
+   AUTOMATIC BACKUPS (v4.25) — daily/weekly/monthly full-database snapshots,
+   written to \My Drive\WebApps\AssetsApp\Backup (a sibling of ItemsImages
+   and Items Deleted). Checked on every pollCloud() tick (~20s) but only
+   actually uploads when a period is due, tracked via idb meta 'autoBackup'
+   so it survives reloads and works across whichever device happens to be
+   open at the time. Runs independently of the live active/history sync —
+   this is a point-in-time snapshot for disaster recovery, not the live file.
+--------------------------------------------------------------------------- */
+function isoWeekLabel(d){
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = (t.getUTCDay() + 6) % 7; // Mon=0..Sun=6
+  t.setUTCDate(t.getUTCDate() - day + 3);
+  const firstThursday = new Date(Date.UTC(t.getUTCFullYear(),0,4));
+  const week = 1 + Math.round(((t - firstThursday) / 86400000 - 3 + ((firstThursday.getUTCDay()+6)%7)) / 7);
+  return `${t.getUTCFullYear()}-W${String(week).padStart(2,'0')}`;
+}
+function buildFullBackupPayload(){
+  return {
+    exportedAt: nowISO(),
+    version: state.meta.version,
+    assets: state.assets,
+    history: state.history,
+    settings: state.settings,
+    categories: CATEGORIES,
+    locations: LOCATIONS,
+    meta: { version: state.meta.version, changelog: state.meta.changelog }
+  };
+}
+async function createFileInFolder(name, payload, folderId){
+  const boundary = 'gaiaLakeBoundary' + Date.now();
+  const metadata = { name, parents:[folderId], mimeType:'application/json' };
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n` +
+    `--${boundary}--`;
+  return driveFetchJson('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime', {
+    method:'POST', headers:{ 'Content-Type': `multipart/related; boundary=${boundary}` }, body
+  });
+}
+async function pruneOldBackups(prefix, keep){
+  try{
+    const folderId = await getOrCreateBackupFolderId();
+    const q = encodeURIComponent(`name contains '${prefix}' and '${folderId}' in parents and trashed=false`);
+    const data = await driveFetchJson(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&orderBy=name&spaces=drive`);
+    const files = (data.files||[]).sort((a,b)=>a.name.localeCompare(b.name)); // filenames embed the date, so name-sort is chronological
+    const toDelete = files.slice(0, Math.max(0, files.length - keep));
+    for(const f of toDelete){
+      try{ await driveFetchJson(`https://www.googleapis.com/drive/v3/files/${f.id}`, { method:'DELETE' }); }
+      catch(e){ console.error('[backup] could not prune', f.name, e); }
+    }
+  }catch(e){ console.error('[backup] prune failed for', prefix, e); }
+}
+async function runAutoBackup(period, filename){
+  const folderId = await getOrCreateBackupFolderId();
+  const payload = buildFullBackupPayload();
+  await createFileInFolder(filename, payload, folderId);
+  const keep = period==='daily' ? 14 : period==='weekly' ? 8 : 12; // monthly: keep a year's worth
+  await pruneOldBackups(`gaia-lake-backup-${period}-`, keep);
+}
+async function checkAutoBackups(){
+  if(!state.cloud.connected || !state.cloud.syncReady) return;
+  const rec = (await idbGet('meta','autoBackup')) || { key:'autoBackup', lastDaily:null, lastWeekly:null, lastMonthly:null };
+  const now = new Date();
+  const todayKey = now.toISOString().slice(0,10);
+  const weekKey = isoWeekLabel(now);
+  const monthKey = now.toISOString().slice(0,7);
+  let changed = false;
+  if(rec.lastDaily !== todayKey){
+    await runAutoBackup('daily', `gaia-lake-backup-daily-${todayKey}.json`);
+    rec.lastDaily = todayKey; changed = true;
+  }
+  if(rec.lastWeekly !== weekKey){
+    await runAutoBackup('weekly', `gaia-lake-backup-weekly-${weekKey}.json`);
+    rec.lastWeekly = weekKey; changed = true;
+  }
+  if(rec.lastMonthly !== monthKey){
+    await runAutoBackup('monthly', `gaia-lake-backup-monthly-${monthKey}.json`);
+    rec.lastMonthly = monthKey; changed = true;
+  }
+  if(changed){
+    await idbPutRaw('meta', rec); // idbPutRaw: writes without triggering a Drive push — this record is local bookkeeping only, never part of the synced JSON
+    updateAutoBackupStatusUI();
+  }
+}
+async function runManualBackupNow(){
+  if(!state.cloud.connected){ showToast('Sign in to Google Drive first.','error'); return; }
+  const btn = document.getElementById('s-backup-now');
+  const original = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Backing up…'; }
+  try{
+    const now = new Date();
+    await runAutoBackup('daily', `gaia-lake-backup-daily-${now.toISOString().slice(0,10)}.json`);
+    const rec = (await idbGet('meta','autoBackup')) || { key:'autoBackup', lastDaily:null, lastWeekly:null, lastMonthly:null };
+    rec.lastDaily = now.toISOString().slice(0,10);
+    await idbPutRaw('meta', rec);
+    updateAutoBackupStatusUI();
+    showToast('Backup saved to the Backup folder on Drive.');
+  }catch(err){
+    showToast('Backup failed: '+err.message, 'error');
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = original; }
+  }
+}
+function updateAutoBackupStatusUI(){
+  const el = document.getElementById('cloud-backup-status-text');
+  if(!el) return;
+  idbGet('meta','autoBackup').then(rec=>{
+    if(!rec){ el.textContent = 'No automatic backup has run yet in this browser.'; return; }
+    const parts = [];
+    if(rec.lastDaily) parts.push('Daily: '+rec.lastDaily);
+    if(rec.lastWeekly) parts.push('Weekly: '+rec.lastWeekly);
+    if(rec.lastMonthly) parts.push('Monthly: '+rec.lastMonthly);
+    el.textContent = parts.length ? 'Last automatic backups — '+parts.join(' · ') : 'No automatic backup has run yet in this browser.';
+  });
 }
 async function cloudManualSync(){
   if(!state.cloud.connected){ showToast('Sign in to Google Drive first.','error'); return; }
   await pollCloud();
+  if(state.cloud.needsReconnect){
+    showToast('Still reconnecting to Google Drive — click Sync Now again in a moment, or Sign Out/Sign In if this persists.','error');
+    return;
+  }
   if(state.cloud.dirty) await pushToCloud();
   if(state.cloud.historyLoaded && state.cloud.historyDirty) await pushHistoryToCloud();
   showToast('Sync check complete.');
@@ -4685,7 +5066,16 @@ function mergeRowsByAssetNumber(rows){
     const totalQty = group.reduce((s,g)=>s+Number(g.qty||0),0);
     const mostRecent = group.reduce((l,g)=> (!l || new Date(g.lastUpdated) > new Date(l.lastUpdated)) ? g : l, null);
     const withPhoto = group.find(g=>assetPhotoSrc(g));
-    const noteParts = group.map(g=>g.notes).filter(Boolean);
+    // A Split commonly carries the same note forward to every condition
+    // record (or the user just never bothered changing it on 2 of the 3) —
+    // joining every copy printed the same sentence 2-3 times. Dedupe by
+    // trimmed text so an identical note only appears once.
+    const seenNotes = new Set();
+    const noteParts = group.map(g=>g.notes).filter(Boolean).filter(n=>{
+      const key = String(n).trim();
+      if(!key || seenNotes.has(key)) return false;
+      seenNotes.add(key); return true;
+    });
     return Object.assign({}, base, {
       qty: totalQty,
       lastUpdated: mostRecent ? mostRecent.lastUpdated : base.lastUpdated,
@@ -4926,6 +5316,99 @@ async function print3appSingle(item){
     window.open(doc.output('bloburl'), '_blank');
   }catch(err){
     showToast('Could not build the print sheet: '+err.message, 'error');
+  }
+}
+/* ---------------------------------------------------------------------------
+   QR CODE LABEL SHEET — a grid of true 1"x1" (25.4mm) QR labels, one per
+   Asset Number, meant to be printed, cut out and stuck onto the physical
+   item. No photo/Drive dependency (unlike 3APP) since it only needs the
+   asset number, name and location — works fully offline.
+--------------------------------------------------------------------------- */
+/* Renders one QR code off-screen at a decent pixel size and returns it as a
+   PNG data URL. qrcodejs (davidshimjs) draws into a <canvas> synchronously
+   in every modern browser, so no polling/await-for-paint is needed — the
+   canvas is readable via toDataURL() the instant the constructor returns. */
+function renderQrToDataUrl(text, sizePx){
+  const holder = document.createElement('div');
+  holder.style.position = 'fixed'; holder.style.left = '-9999px'; holder.style.top = '-9999px';
+  document.body.appendChild(holder);
+  try{
+    new QRCode(holder, { text: String(text), width:sizePx, height:sizePx, correctLevel: QRCode.CorrectLevel.M });
+    const canvas = holder.querySelector('canvas');
+    return canvas ? canvas.toDataURL('image/png') : null;
+  }catch(e){ return null; }
+  finally{ document.body.removeChild(holder); }
+}
+async function buildQrLabelsPdfDoc(rows, onProgress){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p','mm','a4');
+  const pageWidth = 210, pageHeight = 297, margin = 10;
+  const qrSize = 25.4; // exactly 1in x 1in — the actual printed/scanned code
+  const cellW = 32, cellH = 37, gap = 3;
+  const headerH = 13;
+  const cols = Math.max(1, Math.floor((pageWidth - margin*2 + gap) / (cellW + gap)));
+  const rowsPerPage = Math.max(1, Math.floor((pageHeight - margin*2 - headerH + gap) / (cellH + gap)));
+  const perPage = cols * rowsPerPage;
+  const totalPages = Math.max(1, Math.ceil(rows.length / perPage));
+
+  const drawHeader = (pageNum)=>{
+    doc.setFont('helvetica','bold'); doc.setFontSize(10.5); doc.setTextColor(33,38,31);
+    doc.text('QR ASSET LABELS', margin, margin+4);
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(138,132,113);
+    doc.text(`${state.settings.companyName||''}  ·  Page ${pageNum} of ${totalPages}`, pageWidth-margin, margin+4, {align:'right'});
+    doc.setDrawColor(224,220,205); doc.setLineWidth(0.2);
+    doc.line(margin, margin+6.5, pageWidth-margin, margin+6.5);
+  };
+
+  let done = 0;
+  for(let p=0; p<totalPages; p++){
+    if(p>0) doc.addPage();
+    drawHeader(p+1);
+    const pageRows = rows.slice(p*perPage, (p+1)*perPage);
+    for(let i=0;i<pageRows.length;i++){
+      const item = pageRows[i];
+      const col = i % cols, rowIdx = Math.floor(i/cols);
+      const x = margin + col*(cellW+gap);
+      const y = margin + headerH + rowIdx*(cellH+gap);
+      const qrUrl = renderQrToDataUrl(item.assetNumber, 300);
+      const qx = x + (cellW-qrSize)/2;
+      if(qrUrl){ try{ doc.addImage(qrUrl, 'PNG', qx, y, qrSize, qrSize); }catch(e){} }
+      else { doc.setDrawColor(200,196,180); doc.rect(qx, y, qrSize, qrSize); }
+      // Name / Location / Asset # underneath — this is what lets someone
+      // identify a label by eye before they even scan it.
+      doc.setFont('helvetica','bold'); doc.setFontSize(6.4); doc.setTextColor(33,38,31);
+      const nameLines = doc.splitTextToSize(item.name || 'Untitled Asset', cellW);
+      doc.text(nameLines[0]||'', x+cellW/2, y+qrSize+3.1, {align:'center', maxWidth:cellW});
+      doc.setFont('helvetica','normal'); doc.setFontSize(5.8); doc.setTextColor(138,132,113);
+      const locLines = doc.splitTextToSize(item.location || '', cellW);
+      doc.text(locLines[0]||'', x+cellW/2, y+qrSize+6.0, {align:'center', maxWidth:cellW});
+      doc.setFont('helvetica','bold'); doc.setFontSize(6.2); doc.setTextColor(76,157,56);
+      doc.text(String(item.assetNumber||''), x+cellW/2, y+qrSize+9.0, {align:'center'});
+      done++;
+      if(onProgress) onProgress(done, rows.length);
+    }
+  }
+  return doc;
+}
+async function runQrLabelsPdf(rows, mode){
+  if(!rows.length){ showToast('No assets match this Category/Location filter.','error'); return; }
+  const btnId = mode==='view' ? 'p-qr-view' : 'p-qr-download';
+  const btn = document.getElementById(btnId);
+  const originalLabel = btn ? btn.innerHTML : '';
+  if(btn){ btn.disabled = true; btn.textContent = `Generating… 0/${rows.length}`; }
+  try{
+    const doc = await buildQrLabelsPdfDoc(rows, (done,total)=>{
+      if(btn) btn.textContent = `Generating… ${done}/${total}`;
+    });
+    if(mode==='view'){
+      window.open(doc.output('bloburl'), '_blank');
+    } else {
+      doc.save(`gaia-lake-qr-labels-${new Date().toISOString().slice(0,10)}.pdf`);
+    }
+  }catch(err){
+    showToast('Could not build the QR label sheet: '+err.message, 'error');
+  } finally {
+    if(btn){ btn.disabled = false; btn.innerHTML = originalLabel; }
   }
 }
 async function printManifest(asPdf){
