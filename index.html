@@ -191,7 +191,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.26</span>
+      <span id="sidebar-version">v4.27</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -223,7 +223,7 @@ or redistribution is strictly prohibited.
       <nav id="mobile-nav" class="space-y-1"></nav>
       <div class="pt-3 mt-2 border-t sidebar-border" id="cloud-sidebar-slot-mobile"></div>
       <div class="pt-3 mt-2 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between">
-        <span id="mobile-sidebar-version">v4.26</span>
+        <span id="mobile-sidebar-version">v4.27</span>
         <span class="grip-dot theme-bg"></span>
       </div>
     </div>
@@ -259,7 +259,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.26</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.27</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -509,7 +509,15 @@ function idbPutRaw(storeName,value){
 function idbDelete(storeName,key){
   return withStore(storeName, "readwrite", (store,resolve,reject)=>{
     const req = store.delete(key);
-    req.onsuccess = ()=>{ resolve(true); scheduleCloudPush(storeName); };
+    req.onsuccess = ()=>{
+      resolve(true);
+      scheduleCloudPush(storeName);
+      // A deletion needs its own record synced alongside the assets array —
+      // otherwise a pull/push on another device that still has this asset
+      // in memory would just re-add it back in on the next merge. See the
+      // MULTI-DEVICE SYNC MERGE section near pushToCloud for how this is used.
+      if(storeName === 'assets') recordDeletionTombstone(key).catch(e=>console.error('[sync] tombstone record failed:', e));
+    };
     req.onerror = (e)=>reject(e.target.error);
   });
 }
@@ -959,6 +967,7 @@ const state = {
   },
   meta: { version:'1.0', changelog:[] },
   editing: null,                // asset object currently in editor, or null (new)
+  editingOriginal: null,        // untouched snapshot of `editing` as opened — used to detect a genuine no-op Save (see saveStandardItem)
   editorBaseAssetNumber: null,  // when adding batch / splitting, the group we're working on
   splitMode: false,
   printSelection: { location:'all', sortBy:'name', selectedIds:new Set(), qrCategory:'all', qrLocation:'all' },
@@ -1024,6 +1033,47 @@ async function peekAssetNumber(){
   const next = (cur===undefined ? -1 : cur) + 1;
   return `${yy}${String(next).padStart(4,'0')}`;
 }
+/* Safety net for the (now much narrower, but not literally zero) window
+   where two devices could still generate the same Asset Number — a genuine
+   duplicate is a number shared by records with DIFFERENT names (a real mixup
+   between two physical items), not the SAME name (that is just a Split —
+   several condition/qty rows for one physical item, which deliberately
+   shares a number and is not a conflict). */
+function findAssetNumberConflicts(){
+  const byNumber = {};
+  state.assets.forEach(a=>{
+    if(!a.assetNumber) return;
+    (byNumber[a.assetNumber] = byNumber[a.assetNumber] || []).push(a);
+  });
+  const conflicts = [];
+  Object.keys(byNumber).forEach(num=>{
+    const group = byNumber[num];
+    const distinctNames = new Set(group.map(a=> String(a.name||'').trim().toLowerCase()));
+    if(distinctNames.size > 1) conflicts.push({ assetNumber:num, items:group });
+  });
+  return conflicts.sort((a,b)=> a.assetNumber.localeCompare(b.assetNumber));
+}
+async function autoFixAssetNumberConflicts(){
+  const conflicts = findAssetNumberConflicts();
+  let fixed = 0;
+  for(const c of conflicts){
+    // Keep the number on whichever record was actually touched most recently
+    // (the one search/QR lookups are currently resolving to); renumber the
+    // other, older conflicting record(s) onto a fresh, unused number.
+    const sorted = c.items.slice().sort((a,b)=> new Date(b.lastUpdated||0) - new Date(a.lastUpdated||0));
+    for(let i=1;i<sorted.length;i++){
+      const item = sorted[i];
+      const oldNumber = item.assetNumber;
+      item.assetNumber = await nextAssetNumber();
+      item.lastUpdated = nowISO();
+      await idbPut('assets', item);
+      await logHistory('updated', Object.assign({}, item, { notes: `Asset Number reassigned from ${oldNumber} to ${item.assetNumber} — resolved a duplicate-number conflict with "${sorted[0].name}" (${sorted[0].assetNumber}).` }));
+      fixed++;
+    }
+  }
+  if(fixed) render();
+  return fixed;
+}
 
 /* ---------------------------------------------------------------------------
    5. HISTORY LOGGING
@@ -1031,6 +1081,7 @@ async function peekAssetNumber(){
 async function logHistory(action, item){
   const entry = {
     id: uuid(),
+    assetId: item.id || null, // reliable reference back to the live asset record (assetNumber alone is not — see MULTI-DEVICE SYNC MERGE and the Data Integrity checker)
     assetNumber: item.assetNumber,
     itemName: item.name,
     location: item.location,
@@ -1050,6 +1101,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.27', date: nowISO(), type:'minor', summary:'Found and fixed the real cause of an Asset Number being reused between two different items — sync now merges instead of overwriting when more than one device is signed in. Also: Dashboard Last Updated/Last New Item cards are now clickable with images, and Save on the Edit form no longer logs a History entry when nothing was actually changed.',
+    detail:'Root cause of the asset-number bug: two devices open around the same time could each add a new item within the same ~20 second poll window. Every push was a plain overwrite of the whole assets list, and every pull did a full clear-and-replace from whatever Drive returned, so whichever push landed second could silently erase the other device\'s new item from the live file (History kept a record either way, since History merges instead of overwriting, which is exactly why the Dashboard card still showed the old item). The asset-number counter itself was also purely local per device, so two devices could independently generate the same next number for two completely different items. Fixed by merging assets and the counter by id (newest edit wins) on every push and every pull instead of overwriting, with a proper deletion record so a merge cannot resurrect something a device deliberately deleted. Also added a Data Integrity checker in Settings (Check for Duplicate Asset Numbers) as a safety net, since two saves within the exact same fraction of a second could still theoretically collide — it finds any number shared between two differently named items and reassigns a fresh number to the older one with a History entry noting why. Dashboard: Last Updated Asset and Last New Item Received now look up the live current record instead of a frozen History snapshot, show the asset photo, location, category and condition, and are clickable straight into the Edit form with a hover highlight. Edit form: Save now compares the form against the untouched original before writing anything — if nothing on an existing item actually changed, it behaves as a plain close (same navigation, a "No changes made" toast) instead of writing an identical record and logging a no-op "updated" History entry.' },
   { version:'4.26', date: nowISO(), type:'patch', summary:'Fixed automatic backups creating duplicate files when more than one device (phone, PC, etc.) is signed in and runs its backup check around the same time.',
     detail:'Each device tracked its own last-backup-run date locally, so when two devices were open and signed in around the same day, each one independently created a brand new Drive file for that day/week/month, even though a good one already existed. Google Drive itself allows several files to share the exact same name, so this did not fail loudly, it just quietly produced 2-3 duplicate objects per period. Google Drive for Desktop then has to disambiguate those identically-named files when it downloads them onto an actual Windows folder, which is where the "(1)" and "(2)" suffixes seen in the Backup folder came from. Fixed by making the backup write idempotent: before saving, it now looks for a file already named exactly right for that period, updates that one in place instead of creating a new one, and removes any leftover duplicates it finds along the way. This self-heals the existing clutter automatically the next time any signed-in device runs its backup check, and prevents new duplicates going forward no matter how many devices are open at once.' },
   { version:'4.25', date: nowISO(), type:'minor', summary:'Added automatic daily/weekly/monthly full-database backups to a Backup folder on Drive, plus continued digging on the "JSON not updating" report — this update on its own does not explain a report of the live file staying untouched for many days, see the note below.',
@@ -1171,6 +1224,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.24'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.25'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.26'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.27'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1210,7 +1264,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.26', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.27', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -1539,12 +1593,25 @@ function viewTitle(){
 --------------------------------------------------------------------------- */
 function lastUpdatedAsset(){
   if(!state.assets.length) return null;
-  return state.assets.reduce((latest, a)=> (!latest || new Date(a.lastUpdated) > new Date(latest.lastUpdated)) ? a : latest, null);
+  const a = state.assets.reduce((latest, x)=> (!latest || new Date(x.lastUpdated) > new Date(latest.lastUpdated)) ? x : latest, null);
+  return a ? { asset:a, date:a.lastUpdated } : null;
 }
 function lastReceivedEntry(){
   const received = state.history.filter(h=> h.action==='created' || h.action==='batch added');
   if(!received.length) return null;
-  return received.reduce((latest, h)=> (!latest || new Date(h.date) > new Date(latest.date)) ? h : latest, null);
+  const historyEntry = received.reduce((latest, h)=> (!latest || new Date(h.date) > new Date(latest.date)) ? h : latest, null);
+  if(!historyEntry) return null;
+  // Look up the CURRENT live record instead of trusting the history
+  // snapshot verbatim — a history entry is a frozen point-in-time record,
+  // so if this asset was later renamed, or its number ever got reassigned to
+  // a different item (the exact bug this card surfaced — see the Data
+  // Integrity checker in Settings), showing the old snapshot here would
+  // still be actively wrong even after that gets fixed elsewhere.
+  const current = (historyEntry.assetId && state.assets.find(a=>a.id===historyEntry.assetId))
+    || (historyEntry.assetNumber && state.assets.find(a=>a.assetNumber===historyEntry.assetNumber))
+    || null;
+  if(!current) return null; // the asset this refers to no longer exists (deleted since) — nothing current to show
+  return { asset:current, date:historyEntry.date };
 }
 function periodConditionSummary(period){
   const now = new Date();
@@ -1587,27 +1654,42 @@ function renderDashboard(){
     </div>`;
   };
 
-  const lastUpdated = lastUpdatedAsset();
-  const lastReceived = lastReceivedEntry();
-  const period = periodConditionSummary(dashPeriod);
-  const maxPeriod = Math.max(1, ...Object.values(period.counts));
-
   const infoCard = (title, entry, emptyMsg)=>{
     if(!entry) return `<div class="bg-white rounded-2xl border border-[#E7E2D3] p-4">
       <p class="text-[10.5px] uppercase tracking-wider font-semibold text-[#a89f85] mb-2">${title}</p>
       <p class="text-xs text-[#a89f85]">${emptyMsg}</p>
     </div>`;
-    const name = entry.name || entry.itemName;
-    return `<div class="bg-white rounded-2xl border border-[#E7E2D3] p-4">
+    const a = entry.asset;
+    const cMeta = condMeta(a.condition);
+    const photoSrc = assetPhotoSrc(a);
+    return `<div data-info-card-asset="${a.id}" title="Click to view/edit this asset" class="bg-white rounded-2xl border border-[#E7E2D3] p-4 cursor-pointer transition-colors hover:border-[#4C9D38] hover:bg-[#F7FAF5] group">
       <p class="text-[10.5px] uppercase tracking-wider font-semibold text-[#a89f85] mb-2">${title}</p>
-      <p class="font-display font-semibold text-sm truncate">${escapeHtml(name)}</p>
-      <p class="text-[11px] font-mono text-[#a89f85] mt-0.5">${entry.assetNumber}</p>
+      <div class="flex items-center gap-3">
+        ${photoSrc
+          ? `<img src="${escapeHtml(photoSrc)}" class="w-11 h-11 rounded-lg object-cover border border-[#E7E2D3] shrink-0" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className:'w-11 h-11 rounded-lg bg-[#F1EEE3] border border-[#E7E2D3] shrink-0'}))"/>`
+          : `<div class="w-11 h-11 rounded-lg bg-[#F1EEE3] border border-[#E7E2D3] shrink-0"></div>`}
+        <div class="min-w-0 flex-1">
+          <p class="font-display font-semibold text-sm truncate group-hover:text-[#4C9D38]">${escapeHtml(a.name||'Untitled Asset')}</p>
+          <p class="text-[11px] font-mono text-[#a89f85]">${escapeHtml(a.assetNumber||'')}</p>
+        </div>
+      </div>
+      <div class="flex items-center flex-wrap gap-x-2 gap-y-1 mt-2.5 text-[11px] text-[#8a8471]">
+        <span class="truncate">${escapeHtml(a.location||'—')}</span>
+        <span>·</span>
+        <span class="truncate">${escapeHtml(a.category||'—')}</span>
+        <span class="px-1.5 py-0.5 rounded-full ${cMeta.cls}">${escapeHtml(a.condition||'—')}</span>
+      </div>
       <div class="flex items-center justify-between mt-2 text-xs">
-        <span class="text-[#8a8471]">Qty <span class="font-mono font-semibold text-[#21261f]">${entry.qty}</span></span>
-        <span class="text-[#8a8471]">${fmtDate(entry.lastUpdated || entry.date)}</span>
+        <span class="text-[#8a8471]">Qty <span class="font-mono font-semibold text-[#21261f]">${a.qty}</span></span>
+        <span class="text-[#8a8471]">${fmtDate(entry.date)}</span>
       </div>
     </div>`;
   };
+
+  const lastUpdated = lastUpdatedAsset();
+  const lastReceived = lastReceivedEntry();
+  const period = periodConditionSummary(dashPeriod);
+  const maxPeriod = Math.max(1, ...Object.values(period.counts));
 
   return `
   <div class="space-y-4">
@@ -2003,6 +2085,12 @@ function openEditor(entry, opts){
     purchasePrice:0, purchaseDate:new Date().toISOString().slice(0,10), vendor:'', notes:'', imageSrc:'',
     subCategory:'', remarks:''
   };
+  // Snapshot of the unedited record, kept separate from state.editing (which
+  // readFormIntoEditing mutates) — saveStandardItem compares against this to
+  // tell a genuine edit from someone just opening and re-saving an item with
+  // nothing changed. null for a brand-new item: there's nothing to diff a
+  // fresh creation against, and it should always save.
+  state.editingOriginal = entry ? JSON.parse(JSON.stringify(entry)) : null;
   state.splitMode = !!opts.split;
   state.editorBaseAssetNumber = opts.baseAssetNumber || (entry ? entry.assetNumber : null);
   state.editorIsBatch = !!opts.batch;
@@ -2398,6 +2486,18 @@ async function saveStandardItem(){
   if(!e.name){ showToast('Asset name is required.','error'); return; }
   const isNewEntry = !e.id;
 
+  // Save used to unconditionally write + log an "updated" History entry even
+  // when literally nothing on the form was changed — every open-then-Save
+  // created noise in History. Now: for an existing item, compare the
+  // editable fields against the untouched snapshot taken when the form
+  // opened (state.editingOriginal); if nothing changed, this behaves as a
+  // plain close — no write, no History entry — instead of a no-op "update".
+  if(!isNewEntry && state.editingOriginal && !hasEditableFieldsChanged(state.editingOriginal, e)){
+    showToast('No changes made.','info');
+    navigateTo('location', e.location);
+    return;
+  }
+
   if(!e.assetNumber){
     e.assetNumber = await nextAssetNumber();
   }
@@ -2413,6 +2513,14 @@ async function saveStandardItem(){
   await logHistory(actionLabel, e);
   showToast('Item saved successfully.');
   navigateTo('location', e.location);
+}
+/* Fields a user can actually change from the Edit Item form — deliberately
+   excludes id/assetNumber/createdAt/lastUpdated, which are app-managed, not
+   user edits. String() normalizes number-vs-string and null-vs-'' mismatches
+   that would otherwise register as a false "change" after a DOM round-trip. */
+function hasEditableFieldsChanged(a, b){
+  const fields = ['name','category','subCategory','location','qty','condition','purchasePrice','purchaseDate','vendor','notes','imageSrc','remarks'];
+  return fields.some(f=> String(a[f]==null?'':a[f]) !== String(b[f]==null?'':b[f]));
 }
 
 async function deleteCurrentItem(){
@@ -2492,6 +2600,10 @@ function bindViewEvents(){
     dashSearchInput.addEventListener('focus', refreshDashboardSearch);
   }
   bindDashboardSearchResultClicks();
+  document.querySelectorAll('[data-info-card-asset]').forEach(el=>el.addEventListener('click', ()=>{
+    const item = state.assets.find(a=>a.id===el.getAttribute('data-info-card-asset'));
+    if(item) openEditor(item);
+  }));
   document.querySelectorAll('[data-period]').forEach(b=>{
     b.addEventListener('click', ()=>{ dashPeriod = b.getAttribute('data-period'); render(); });
   });
@@ -3061,6 +3173,16 @@ function renderSettingsView(){
     </section>` : adminLockNotice('Automatic Backups')}
 
     ${admin ? `
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-3">
+      <p class="font-display font-semibold">Data Integrity</p>
+      <p class="text-xs text-[#8a8471]">Checks for Asset Numbers accidentally shared between two different physical items (not the same as a Split, which deliberately shares a number across condition rows for one item) — this can happen if two devices add a new item within the same few seconds of each other. Safe to run any time; only touches records it finds a genuine conflict in.</p>
+      <div class="flex flex-wrap items-center gap-3">
+        <button id="s-integrity-check" class="px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">Check for Duplicate Asset Numbers</button>
+      </div>
+      <div id="s-integrity-result"></div>
+    </section>` : adminLockNotice('Data Integrity')}
+
+    ${admin ? `
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
       <p class="font-display font-semibold">Data Portability</p>
       <div class="flex flex-wrap gap-3">
@@ -3381,6 +3503,26 @@ function bindSettingsEvents(){
   bind('s-cloud-signin','click', ()=>{ state.cloud.connected ? cloudSignOut() : cloudSignIn(); });
   bind('s-cloud-sync-now','click', ()=>cloudManualSync());
   bind('s-backup-now','click', ()=>runManualBackupNow());
+  bind('s-integrity-check','click', async ()=>{
+    const resultEl = document.getElementById('s-integrity-result');
+    const conflicts = findAssetNumberConflicts();
+    if(!conflicts.length){
+      if(resultEl) resultEl.innerHTML = `<p class="text-xs text-[#4C9D38]">No duplicate Asset Numbers found.</p>`;
+      showToast('No conflicts found.');
+      return;
+    }
+    if(resultEl){
+      resultEl.innerHTML = `<div class="text-xs text-[#8a8471] space-y-1.5">
+        <p class="text-red-500 font-medium">${conflicts.length} number${conflicts.length===1?'':'s'} shared between different items:</p>
+        ${conflicts.map(c=>`<p>• <span class="font-mono">${escapeHtml(c.assetNumber)}</span> — ${c.items.map(i=>escapeHtml(i.name||'Untitled')).join(' vs ')}</p>`).join('')}
+      </div>`;
+    }
+    const ok = await askConfirm('Fix duplicate Asset Numbers?', `${conflicts.length} number${conflicts.length===1?'':'s'} are shared between different items. This keeps the number on whichever item was most recently updated and assigns the other(s) a fresh, unused number. A History entry is logged for each change.`);
+    if(!ok) return;
+    const fixed = await autoFixAssetNumberConflicts();
+    showToast(`Fixed ${fixed} record${fixed===1?'':'s'}.`);
+    render();
+  });
   updateAutoBackupStatusUI();
 }
 
@@ -4266,8 +4408,87 @@ async function getMasterFileMeta(fileId){
      history table and the full version changelog. Only touched when the
      History page or Settings (which displays the changelog) is opened.
 --------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   MULTI-DEVICE SYNC MERGE (v4.27)
+   Root cause of a real bug report: two devices open around the same time
+   could each add a NEW item within the same ~20s poll window. Both pushes
+   were plain "assets: state.assets" overwrites of the whole file, and pulls
+   did a full idbClear+replace from whatever the remote said — so whichever
+   push landed second silently ERASED the other device's new item from the
+   live file (it only survived in History, which merges instead of
+   overwriting). Separately, the per-device asset-number counter was only
+   read/written locally, so two devices could independently compute the same
+   "next" number and hand it to two completely different items — exactly
+   what a user reported (asset # reused between "Rattan Lounge Sofa Set" and
+   "Table Mats - Plastic").
+   Fix: assets/counters/deletions are now merged by id (newest lastUpdated
+   wins) instead of blindly overwritten, on BOTH push (pulls the current
+   Drive copy and reconciles before sending) and pull (reconciles the
+   incoming remote copy against local instead of replacing it outright).
+   Deletions need their own record (see idbDelete's tombstone hook above) —
+   otherwise a merge that just takes "the newer copy per id" would have no
+   way to tell "this device never heard of this asset" apart from "this
+   device deliberately deleted this asset", and could resurrect deleted
+   items pulled back in from another device's still-in-memory copy.
+   This is a real, meaningful narrowing of the race window (every push now
+   reconciles against Drive's current state first), not a mathematically
+   airtight distributed lock — two saves within the same fraction of a
+   second on two devices could still theoretically collide. The Duplicate
+   Asset Number checker in Settings (Data Integrity section) exists as a
+   safety net to catch and fix anything that slips through anyway. --------- */
+function mergeAssetSets(localAssets, remoteAssets, tombstones){
+  const map = new Map();
+  (remoteAssets||[]).forEach(a=> a && a.id && map.set(a.id, a));
+  (localAssets||[]).forEach(a=>{
+    if(!a || !a.id) return;
+    const existing = map.get(a.id);
+    if(!existing || new Date(a.lastUpdated||0) >= new Date(existing.lastUpdated||0)) map.set(a.id, a);
+  });
+  Object.keys(tombstones||{}).forEach(id=> map.delete(id));
+  return Array.from(map.values());
+}
+function mergeCounters(localValues, remoteValues){
+  const out = Object.assign({}, remoteValues||{});
+  Object.keys(localValues||{}).forEach(k=>{
+    const l = Number(localValues[k]); const r = Number(out[k]);
+    out[k] = Math.max(isNaN(l)?-1:l, isNaN(r)?-1:r);
+  });
+  return out;
+}
+function mergeTombstones(localT, remoteT){
+  const out = Object.assign({}, remoteT||{});
+  Object.keys(localT||{}).forEach(id=>{
+    if(!out[id] || new Date(localT[id]) > new Date(out[id])) out[id] = localT[id];
+  });
+  return out;
+}
+async function recordDeletionTombstone(id){
+  const rec = (await idbGet('meta','deletedTombstones')) || { key:'deletedTombstones', values:{} };
+  rec.values[id] = nowISO();
+  await idbPutRaw('meta', rec);
+}
+/* Reconciles `remote` (a just-fetched or just-pulled Drive snapshot, or null
+   if none available yet) against this device's current local state, writes
+   the merged result back to IndexedDB (without re-triggering more pushes —
+   see idbPutRaw), and updates state.assets in memory. Used by both
+   pushToCloud (merge-before-send) and applyRemoteActiveData (merge-on-pull),
+   so the two directions can never fight each other. */
+async function mergeRemoteIntoLocalAssets(remote){
+  const localTombstones = (await idbGet('meta','deletedTombstones')) || { values:{} };
+  const localCounters = (await idbGet('meta','counters')) || { values:{} };
+  const mergedTombstones = mergeTombstones(localTombstones.values, remote && remote.deletedTombstones);
+  const mergedCounters = mergeCounters(localCounters.values, remote && remote.counters);
+  const mergedAssets = mergeAssetSets(state.assets, remote && remote.assets, mergedTombstones);
+  await idbClear('assets');
+  for(const a of mergedAssets) await idbPutRaw('assets', a);
+  await idbPutRaw('meta', { key:'deletedTombstones', values: mergedTombstones });
+  await idbPutRaw('meta', { key:'counters', values: mergedCounters });
+  state.assets = mergedAssets;
+  return { mergedAssets, mergedCounters, mergedTombstones };
+}
 async function buildActivePayload(){
   const counters = await idbGet('meta','counters');
+  const tombstones = await idbGet('meta','deletedTombstones');
   return {
     savedAt: nowISO(),
     assets: state.assets,
@@ -4275,7 +4496,8 @@ async function buildActivePayload(){
     categories: CATEGORIES,
     locations: LOCATIONS,
     meta: { version: state.meta.version },
-    counters: counters ? counters.values : {}
+    counters: counters ? counters.values : {},
+    deletedTombstones: tombstones ? tombstones.values : {}
   };
 }
 function buildHistoryPayload(){
@@ -4289,22 +4511,23 @@ async function applyRemoteActiveData(remote){
   if(!remote || !Array.isArray(remote.assets)) return;
   state.cloud.applyingRemote = true;
   try{
-    await idbClear('assets');
-    for(const a of remote.assets) await idbPut('assets', a);
-    if(remote.settings) await idbPut('settings', Object.assign({key:'main'}, remote.settings));
+    // Merge, not replace — see MULTI-DEVICE SYNC MERGE above. Otherwise a
+    // pull landing while this device had a not-yet-pushed local edit would
+    // silently discard that edit.
+    await mergeRemoteIntoLocalAssets(remote);
+    if(remote.settings) await idbPutRaw('settings', Object.assign({key:'main'}, remote.settings));
     const cats = Array.isArray(remote.categories) && remote.categories.length ? remote.categories : DEFAULT_CATEGORIES.map(c=>Object.assign({},c));
-    await idbPut('meta', { key:'categories', list: cats });
+    await idbPutRaw('meta', { key:'categories', list: cats });
     const locs = Array.isArray(remote.locations) && remote.locations.length ? remote.locations : DEFAULT_LOCATIONS.map(l=>Object.assign({},l));
-    await idbPut('meta', { key:'locations', list: locs });
+    await idbPutRaw('meta', { key:'locations', list: locs });
     // The changelog array lives in the history archive, not here. The version
     // NUMBER is code-defined (this file's own DEFAULT_CHANGELOG), so a remote
     // copy is only ever allowed to move it FORWARD — never let a Drive file
     // written by an older build regress the locally-migrated version back down.
     const remoteVersion = remote.meta && remote.meta.version ? remote.meta.version : state.meta.version;
     const finalVersion = cmpVersionStr(remoteVersion, state.meta.version) > 0 ? remoteVersion : state.meta.version;
-    await idbPut('meta', { key:'version', version: finalVersion, changelog: state.meta.changelog });
-    await idbPut('meta', { key:'counters', values: remote.counters || {} });
-    await idbPut('settings', {
+    await idbPutRaw('meta', { key:'version', version: finalVersion, changelog: state.meta.changelog });
+    await idbPutRaw('settings', {
       key:'cloud', clientId: state.cloud.clientId, apiKey: state.cloud.apiKey,
       folderId: state.cloud.folderId, fileId: state.cloud.fileId, historyFileId: state.cloud.historyFileId
     });
@@ -4445,6 +4668,15 @@ async function pushToCloud(){
   }
   try{
     state.cloud.syncing = true; setCloudStatus('busy','Syncing…'); renderCloudSidebar();
+    // Merge-before-send: pull whatever is currently on Drive and reconcile
+    // it with local state first (see MULTI-DEVICE SYNC MERGE above), so a
+    // concurrent edit from another device can't get silently overwritten by
+    // this push, and this device also immediately picks up anything the
+    // other device already saved.
+    let remote = null;
+    try{ remote = await downloadMasterFile(state.cloud.fileId); }
+    catch(e){ console.log('[cloud] pre-push remote fetch failed, pushing local state only:', e.message); }
+    if(remote) await mergeRemoteIntoLocalAssets(remote);
     const payload = await buildActivePayload();
     const updated = await updateMasterFile(state.cloud.fileId, payload);
     state.cloud.lastRemoteModified = updated.modifiedTime;
@@ -4454,6 +4686,12 @@ async function pushToCloud(){
     if(state.cloud.needsReconnect){ state.cloud.needsReconnect = false; updateCloudBanner(); }
     setCloudStatus('on','Synced');
     console.log('[cloud] pushed to Drive successfully at '+state.cloud.lastSync+' (assets:'+payload.assets.length+')');
+    // Deliberately not calling render() here — pushToCloud can fire mid-edit
+    // (500ms after a keystroke via the debounce), and a full re-render while
+    // a form is open would wipe out whatever the user is mid-typing. Any
+    // assets merged in from another device are already in state.assets and
+    // will show up on the next natural render (closing the form, switching
+    // views, or the next poll/pull cycle).
   }catch(err){
     state.cloud.lastPushError = err.message;
     setCloudStatus('off','Sync error');
