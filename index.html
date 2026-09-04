@@ -191,7 +191,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.28</span>
+      <span id="sidebar-version">v4.30</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -223,7 +223,7 @@ or redistribution is strictly prohibited.
       <nav id="mobile-nav" class="space-y-1"></nav>
       <div class="pt-3 mt-2 border-t sidebar-border" id="cloud-sidebar-slot-mobile"></div>
       <div class="pt-3 mt-2 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between">
-        <span id="mobile-sidebar-version">v4.28</span>
+        <span id="mobile-sidebar-version">v4.30</span>
         <span class="grip-dot theme-bg"></span>
       </div>
     </div>
@@ -259,7 +259,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.28</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.30</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -301,6 +301,18 @@ or redistribution is strictly prohibited.
     <div class="flex gap-3 justify-end mt-5">
       <button id="excel-import-cancel" class="px-4 py-2 rounded-lg border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">Cancel</button>
       <button id="excel-import-confirm" class="px-4 py-2 rounded-lg theme-bg text-white text-sm font-medium">Import Now</button>
+    </div>
+  </div>
+</div>
+
+<div id="excel-update-dialog" class="fixed inset-0 z-50 hidden items-center justify-center modal-backdrop no-print p-4">
+  <div class="bg-white rounded-2xl p-6 max-w-lg w-full shadow-xl max-h-[85vh] overflow-y-auto scroll-thin">
+    <p class="font-display font-semibold text-lg mb-1">Confirm Bulk Update</p>
+    <p class="text-sm text-[#635e4d] mb-4">Review before committing — this only updates fields on existing items matched by Asset Number. Asset Numbers are never changed, and no new records are ever created here.</p>
+    <div id="excel-update-summary" class="text-sm space-y-3"></div>
+    <div class="flex gap-3 justify-end mt-5">
+      <button id="excel-update-cancel" class="px-4 py-2 rounded-lg border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3]">Cancel</button>
+      <button id="excel-update-confirm" class="px-4 py-2 rounded-lg theme-bg text-white text-sm font-medium">Update Now</button>
     </div>
   </div>
 </div>
@@ -621,6 +633,12 @@ document.getElementById('excel-import-confirm').addEventListener('click', async 
   document.getElementById('excel-import-dialog').classList.add('hidden');
   document.getElementById('excel-import-dialog').classList.remove('flex');
   await commitExcelImport();
+});
+document.getElementById('excel-update-cancel').addEventListener('click', cancelExcelUpdate);
+document.getElementById('excel-update-confirm').addEventListener('click', async ()=>{
+  document.getElementById('excel-update-dialog').classList.add('hidden');
+  document.getElementById('excel-update-dialog').classList.remove('flex');
+  await commitExcelUpdate();
 });
 document.getElementById('bulk-picker-cancel').addEventListener('click', ()=>{
   document.getElementById('bulk-picker-dialog').classList.add('hidden');
@@ -1131,6 +1149,10 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.30', date: nowISO(), type:'patch', summary:'Removed the built-in demo/sample-data seeder entirely.',
+    detail:'The app used to auto-populate 6 sample assets (Office Chairs, Commercial Refrigerator, Backup Generator System 20kVA, Smart LED Television 43 inch, Cotton Bath Towels, Rattan Lounge Sofa Set) on any completely empty database, meant only to avoid a blank screen on a brand-new install. That check ran on every boot regardless of cloud connection state, and its writes were not exempt from the normal sync path — so on a device with empty local storage that had not yet finished pulling the real database down from Drive, it could seed those demo items locally and then genuinely push them into the live shared database, where the multi-device merge introduced in v4.27 would keep them rather than overwrite them away. Removed the function and its boot-time call outright rather than trying to gate it more carefully, since a production app in daily real use never needs a first-run demo seed. Also trims the file size slightly.' },
+  { version:'4.29', date: nowISO(), type:'minor', summary:'Last New Item Received now goes strictly by Purchase Date and never invents one; a new Bulk Correct Existing Records tool updates fields like Purchase Date from a corrected spreadsheet without ever touching Asset Numbers or creating new items; and weekly/monthly automatic backups no longer get modified after the fact when more than one device is in use.',
+    detail:'Purchase Date: new items now start with a blank Purchase Date instead of defaulting to today, so nothing gets recorded that was never actually entered. Last New Item Received reads live asset records directly and picks whichever one has the newest Purchase Date, skipping any item with no Purchase Date at all, and the card now labels the date shown as Purchased for clarity. New in Settings: Bulk Correct Existing Records — export the current inventory as Excel or CSV (already has an Asset Number column), correct fields by hand in a spreadsheet, and re-import that file here. Matching is by exact Asset Number; a row whose number is not found is skipped and reported rather than turned into a new item, Asset Numbers are never reassigned by this tool, and a blank cell always leaves that field exactly as it was rather than clearing it, so a partly-filled-in sheet is safe to re-import as many times as needed. Backup scheduling reworked: weekly and monthly backups are now checked against what actually exists on Drive rather than a per-device memory of what has run — once a file exists for the current week or month, nothing touches it again for the rest of that period, from any device, closing the gap that let a second device quietly overwrite an already-finished weekly or monthly snapshot. Daily backups still update freely whenever a real edit is saved, exactly as before.' },
   { version:'4.28', date: nowISO(), type:'patch', summary:'CRITICAL FIX: found and fixed a bug from v4.27 that had the app continuously syncing to Drive even with zero edits — a background merge step was mistakenly re-triggering itself in a loop. Also: Last New Item Received now goes by Purchase Date instead of data-entry date, Asset Numbers get an extra collision check at the moment they are generated, and a duplicate-number warning now shows right on the Dashboard instead of only appearing when the Settings check is run manually.',
     detail:'The continuous-syncing bug: v4.27 added a merge-before-push step so a concurrent edit from another device could not get silently overwritten. That merge step cleared and rewrote the local assets store as part of its own bookkeeping, and did so using the normal write function instead of the internal, non-syncing variant used everywhere else in that same step — so every push (even one triggered by nothing more than the routine 20 second background check) re-armed its own push timer for another 500ms later, forever, with no real edit anywhere in the loop. This is now fixed at the exact line that caused it, verified end to end. Last New Item Received: now shows whichever asset has the most recent Purchase Date, reading live asset records directly rather than a History log entry — this also sidesteps any risk of showing stale info if an item was later renamed or renumbered. Asset Number generation now cross-checks the candidate number against every asset number currently in memory before handing it out, on top of the existing per-year counter, closing the gap that let two devices generate the same number close together. Because a QR code already printed and stuck onto an item can never have its number changed after the fact, the app does not auto-renumber anything silently in the background even when it finds a conflict — it surfaces a clear warning banner on the Dashboard the moment one exists, linking straight to Settings, Data Integrity, where a person can review which item actually has a sticker on it before confirming which one gets the new number.' },
   { version:'4.27', date: nowISO(), type:'minor', summary:'Found and fixed the real cause of an Asset Number being reused between two different items — sync now merges instead of overwriting when more than one device is signed in. Also: Dashboard Last Updated/Last New Item cards are now clickable with images, and Save on the Edit form no longer logs a History entry when nothing was actually changed.',
@@ -1258,6 +1280,8 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.26'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.27'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.28'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.29'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.30'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1297,7 +1321,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.28', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.30', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -1681,7 +1705,7 @@ function renderDashboard(){
     </div>`;
   };
 
-  const infoCard = (title, entry, emptyMsg)=>{
+  const infoCard = (title, entry, emptyMsg, dateLabel)=>{
     if(!entry) return `<div class="bg-white rounded-2xl border border-[#E7E2D3] p-4">
       <p class="text-[10.5px] uppercase tracking-wider font-semibold text-[#a89f85] mb-2">${title}</p>
       <p class="text-xs text-[#a89f85]">${emptyMsg}</p>
@@ -1708,7 +1732,7 @@ function renderDashboard(){
       </div>
       <div class="flex items-center justify-between mt-2 text-xs">
         <span class="text-[#8a8471]">Qty <span class="font-mono font-semibold text-[#21261f]">${a.qty}</span></span>
-        <span class="text-[#8a8471]">${fmtDate(entry.date)}</span>
+        <span class="text-[#8a8471]">${dateLabel ? dateLabel+' ' : ''}${fmtDate(entry.date)}</span>
       </div>
     </div>`;
   };
@@ -1759,8 +1783,8 @@ function renderDashboard(){
     <div>
       <p class="font-display font-semibold text-sm mb-2">Information</p>
       <div class="grid md:grid-cols-3 gap-3">
-        ${infoCard('Last Updated Asset', lastUpdated, 'No assets yet.')}
-        ${infoCard('Last New Item Received', lastReceived, 'Nothing received yet.')}
+        ${infoCard('Last Updated Asset', lastUpdated, 'No assets yet.', 'Updated')}
+        ${infoCard('Last New Item Received', lastReceived, 'No items with a Purchase Date yet.', 'Purchased')}
         <div id="dash-summary-card" class="bg-white rounded-2xl border border-[#E7E2D3] p-4">
           <div class="flex items-start justify-between mb-3 gap-2 flex-wrap">
             <div class="min-w-0 flex-1">
@@ -2115,7 +2139,10 @@ function openEditor(entry, opts){
   state.editing = entry ? JSON.parse(JSON.stringify(entry)) : {
     id:null, assetNumber:null, name:'', category: CATEGORIES[0].name,
     location: state.activeLocation || LOCATIONS[0].name, qty:1, condition:'Usable',
-    purchasePrice:0, purchaseDate:new Date().toISOString().slice(0,10), vendor:'', notes:'', imageSrc:'',
+    // Purchase Date starts blank, not defaulted to today — many older items
+    // genuinely have no known purchase date, and assuming "today" for them
+    // would be inventing data the user never actually entered.
+    purchasePrice:0, purchaseDate:'', vendor:'', notes:'', imageSrc:'',
     subCategory:'', remarks:''
   };
   // Snapshot of the unedited record, kept separate from state.editing (which
@@ -2719,7 +2746,7 @@ function bindViewEvents(){
   document.querySelectorAll('[data-batch]').forEach(b=>b.addEventListener('click', ()=>{
     const base = b.getAttribute('data-batch');
     const rep = state.assets.find(a=>a.assetNumber===base);
-    const batchEntry = Object.assign({}, rep, { id:null, qty:1, condition:'Usable', purchaseDate:new Date().toISOString().slice(0,10), createdAt:null, lastUpdated:null });
+    const batchEntry = Object.assign({}, rep, { id:null, qty:1, condition:'Usable', purchaseDate:'', createdAt:null, lastUpdated:null });
     openEditor(batchEntry, { batch:true, baseAssetNumber: base });
   }));
 
@@ -3250,6 +3277,19 @@ function renderSettingsView(){
     </section>` : adminLockNotice('Bulk Import & Export — Data Tools')}
 
     ${admin ? `
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-3">
+      <p class="font-display font-semibold">Bulk Correct Existing Records</p>
+      <p class="text-xs text-[#8a8471]">For fixing data on items already in the list — most commonly filling in a Purchase Date that came in blank from old records. Export as Excel/CSV above (it already includes the Asset Number column), correct the fields you want by hand, save, then choose that file here. Matching is by exact Asset Number — a row whose number is not found is skipped, never turned into a new item, and Asset Numbers themselves are never changed here. A blank cell leaves that field exactly as it is, so a sheet with only some rows filled in is safe to re-import.</p>
+      <div class="flex flex-wrap gap-3">
+        <label class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#E2DFD3] text-sm font-medium hover:bg-[#F1EEE3] cursor-pointer w-fit">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+          Choose Corrected File<input id="s-excel-update" type="file" accept=".xlsx,.xls,.csv" class="hidden"/>
+        </label>
+      </div>
+      <p id="excel-update-filename" class="text-xs text-[#a89f85]"></p>
+    </section>` : adminLockNotice('Bulk Correct Existing Records')}
+
+    ${admin ? `
     <section class="bg-white rounded-2xl border border-red-200 p-5 space-y-3">
       <p class="font-display font-semibold text-red-600 flex items-center gap-2">${iconAlertTriangle()} Danger Zone</p>
       <p class="text-xs text-[#8a8471]">Useful right before a fresh bulk import. This clears all current inventory records — History is kept for audit and is not affected.</p>
@@ -3511,6 +3551,7 @@ function bindSettingsEvents(){
   bind('s-import','change', importAllData);
   bind('s-whatsnew','click', downloadWhatsNew);
   bind('s-excel-import','change', handleExcelFileSelect);
+  bind('s-excel-update','change', handleExcelUpdateFileSelect);
   bind('s-excel-export','click', exportAssetsToExcel);
   bind('s-csv-export','click', exportAssetsToCsv);
   bind('s-delete-all','click', deleteAllRecords);
@@ -3688,6 +3729,132 @@ async function importAllData(e){
     showToast('Import failed: '+err.message,'error');
   }
   e.target.value = '';
+}
+
+/* ---------------------------------------------------------------------------
+   18c. BULK UPDATE EXISTING RECORDS FROM SPREADSHEET (correct-in-Excel flow)
+   Unlike the ADD import above, this NEVER creates a new record and NEVER
+   touches Asset Number — once a QR code is printed and stuck on a physical
+   item, its number can never change. This is for the opposite case: the
+   user exports the current inventory (Export as Excel/CSV above, which
+   already includes the Asset Number column), corrects specific fields by
+   hand — most commonly filling in a Purchase Date that was blank because it
+   came from old records with no known purchase date — and re-imports that
+   corrected sheet here. Rows are matched to an existing asset by an exact
+   Asset Number match; a row with no match is skipped and reported, never
+   turned into a new item. A blank cell for any other field means "leave
+   this field exactly as it is" — it never blanks out an existing value —
+   so a partially-corrected sheet (dates filled in for only some rows) is
+   safe to re-import as many times as needed.
+--------------------------------------------------------------------------- */
+let pendingExcelUpdate = null;
+const EXCEL_UPDATE_HEADER_MAP = {
+  assetnumber: 'assetNumber', assetno: 'assetNumber', itemnumber: 'assetNumber', itemno: 'assetNumber',
+  itemname: 'name', name: 'name', item: 'name', assetname: 'name',
+  category: 'category',
+  subcategory: 'subCategory', subcat: 'subCategory',
+  location: 'location', assignedlocation: 'location', room: 'location',
+  quantity: 'qty', qty: 'qty',
+  condition: 'condition', status: 'condition',
+  purchaseprice: 'purchasePrice', purchasepriceperunit: 'purchasePrice', price: 'purchasePrice', unitprice: 'purchasePrice', cost: 'purchasePrice',
+  purchasedate: 'purchaseDate', date: 'purchaseDate', dateofpurchase: 'purchaseDate',
+  vendor: 'vendor', vendordetails: 'vendor', supplier: 'vendor',
+  notes: 'notes', note: 'notes',
+  remarks: 'remarks', remark: 'remarks', comment: 'remarks', comments: 'remarks',
+};
+async function handleExcelUpdateFileSelect(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const nameLabel = document.getElementById('excel-update-filename');
+  if(nameLabel) nameLabel.textContent = `Selected: ${file.name}`;
+  try{
+    if(typeof XLSX === 'undefined'){
+      showToast('The spreadsheet library is still loading — please try again in a moment.','error');
+      e.target.value = ''; return;
+    }
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type:'array', cellDates:true });
+    const sheetName = wb.SheetNames[0];
+    const ws = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval:'' });
+    if(!rows.length){ showToast('That sheet has no data rows.','error'); e.target.value=''; return; }
+    processExcelUpdateRows(rows, file.name);
+  }catch(err){
+    showToast('Could not read that file: '+err.message,'error');
+  }
+  e.target.value = '';
+}
+function processExcelUpdateRows(rows, fileName){
+  const matched = []; // { row, asset, patch, changed }
+  const unmatched = []; // { row, assetNumber }
+  const missingNumber = []; // rows with no Asset Number column value at all
+
+  rows.forEach((raw, idx)=>{
+    const patch = {};
+    let assetNumber = '';
+    Object.keys(raw).forEach(key=>{
+      const norm = normalizeHeader(key);
+      const field = EXCEL_UPDATE_HEADER_MAP[norm];
+      if(!field) return;
+      const val = raw[key];
+      const valStr = (val===null||val===undefined) ? '' : String(val).trim();
+      if(field === 'assetNumber'){ assetNumber = valStr; return; }
+      if(valStr === '') return; // blank cell — leave that field untouched, never overwrite with blank
+      if(field === 'qty'){ const n = parseInt(val,10); if(Number.isFinite(n) && n>0) patch.qty = n; }
+      else if(field === 'purchasePrice'){ const n = parseFloat(val); if(Number.isFinite(n)) patch.purchasePrice = n; }
+      else if(field === 'purchaseDate'){ const d = parseDateCell(val); if(d) patch.purchaseDate = d; }
+      else if(field === 'condition'){ patch.condition = normalizeConditionCell(val); }
+      else { patch[field] = valStr; }
+    });
+    if(!assetNumber){ missingNumber.push({ row: idx+2 }); return; }
+    const asset = state.assets.find(a=>String(a.assetNumber).trim()===assetNumber);
+    if(!asset){ unmatched.push({ row: idx+2, assetNumber }); return; }
+    const merged = Object.assign({}, asset, patch);
+    const changed = hasEditableFieldsChanged(asset, merged);
+    matched.push({ row: idx+2, asset, patch, changed });
+  });
+
+  pendingExcelUpdate = { matched, unmatched, missingNumber, fileName };
+  openExcelUpdatePreview();
+}
+function openExcelUpdatePreview(){
+  const p = pendingExcelUpdate;
+  const toUpdate = p.matched.filter(m=>m.changed);
+  const noChange = p.matched.filter(m=>!m.changed);
+  const block = (title, cls, lines)=> lines.length ? `<div><p class="font-medium mb-1 ${cls||''}">${title} (${lines.length})</p><p class="text-xs text-[#8a8471]">${lines.join(', ')}</p></div>` : '';
+  document.getElementById('excel-update-summary').innerHTML = `
+    <div><p class="font-medium">${escapeHtml(p.fileName)}</p><p class="text-xs text-[#8a8471] mt-0.5">${toUpdate.length} record${toUpdate.length===1?'':'s'} will be updated. Asset Numbers are never changed, and no new records are ever created by this tool.</p></div>
+    ${noChange.length ? `<div><p class="font-medium mb-1 text-[#8a8471]">${noChange.length} row${noChange.length===1?'':'s'} matched but had no actual differences — skipped, no History entry.</p></div>` : ''}
+    ${block('Asset Number not found — skipped', 'text-red-600', p.unmatched.map(u=>`row ${u.row} (${escapeHtml(u.assetNumber)})`))}
+    ${block('No Asset Number in row — skipped', 'text-red-600', p.missingNumber.map(m=>`row ${m.row}`))}
+  `;
+  const dlg = document.getElementById('excel-update-dialog');
+  dlg.classList.remove('hidden'); dlg.classList.add('flex');
+}
+async function commitExcelUpdate(){
+  const p = pendingExcelUpdate;
+  if(!p) return;
+  const toUpdate = p.matched.filter(m=>m.changed);
+  if(!toUpdate.length){ showToast('Nothing to update.','info'); cancelExcelUpdate(); return; }
+  showToast(`Updating ${toUpdate.length} record(s)…`,'info');
+  let updated = 0;
+  for(const m of toUpdate){
+    const item = Object.assign({}, m.asset, m.patch, { assetNumber: m.asset.assetNumber, id: m.asset.id, lastUpdated: nowISO() });
+    await idbPut('assets', item);
+    const idx = state.assets.findIndex(a=>a.id===item.id);
+    if(idx>=0) state.assets[idx] = item;
+    const fieldNames = Object.keys(m.patch).join(', ');
+    await logHistory('updated', Object.assign({}, item, { notes: `Bulk-corrected via spreadsheet import (${escapeHtml(p.fileName)}) — fields changed: ${fieldNames}.` }));
+    updated++;
+  }
+  pendingExcelUpdate = null;
+  render();
+  showToast(`Updated ${updated} record${updated===1?'':'s'} from ${p.fileName}.`);
+}
+function cancelExcelUpdate(){
+  pendingExcelUpdate = null;
+  const dlg = document.getElementById('excel-update-dialog');
+  dlg.classList.add('hidden'); dlg.classList.remove('flex');
 }
 
 /* ---------------------------------------------------------------------------
@@ -4652,7 +4819,7 @@ async function cloudInitialConnect(){
     // Flush anything queued while the pull was in flight — safe now that
     // device memory has already been overwritten from Drive above.
     if(state.cloud.dirty) await pushToCloud();
-    checkAutoBackups().catch(err=>console.error('[backup] auto-backup check failed:', err));
+    checkWeeklyMonthlyBackups().catch(err=>console.error('[backup] auto-backup check failed:', err));
   }catch(err){
     setCloudStatus('off','Error');
     showToast('Google Drive connection failed: '+err.message,'error');
@@ -4722,6 +4889,10 @@ async function pushToCloud(){
     if(state.cloud.needsReconnect){ state.cloud.needsReconnect = false; updateCloudBanner(); }
     setCloudStatus('on','Synced');
     console.log('[cloud] pushed to Drive successfully at '+state.cloud.lastSync+' (assets:'+payload.assets.length+')');
+    // Daily backup is tied to real edits, not a timer — see the note above
+    // checkWeeklyMonthlyBackups. Fire-and-forget: a backup hiccup should
+    // never hold up or fail the actual save the user is waiting on.
+    updateDailyBackupAfterPush().catch(err=>console.error('[backup] daily backup update failed:', err));
     // Deliberately not calling render() here — pushToCloud can fire mid-edit
     // (500ms after a keystroke via the debounce), and a full re-render while
     // a form is open would wipe out whatever the user is mid-typing. Any
@@ -4829,7 +5000,7 @@ async function pollCloud(){
     if(state.cloud.dirty && state.cloud.syncReady && !state.cloud.applyingRemote) await pushToCloud();
     if(state.cloud.historyLoaded && state.cloud.historyDirty && state.cloud.historySyncReady && !state.cloud.applyingRemote) await pushHistoryToCloud();
   }catch(err){ /* pushToCloud/pushHistoryToCloud already surface their own errors */ }
-  try{ await checkAutoBackups(); }catch(err){ console.error('[backup] auto-backup check failed:', err); }
+  try{ await checkWeeklyMonthlyBackups(); }catch(err){ console.error('[backup] auto-backup check failed:', err); }
 }
 /* ---------------------------------------------------------------------------
    AUTOMATIC BACKUPS (v4.25) — daily/weekly/monthly full-database snapshots,
@@ -4924,31 +5095,63 @@ async function runAutoBackup(period, filename){
   }
   const keep = period==='daily' ? 14 : period==='weekly' ? 8 : 12; // monthly: keep a year's worth
   await pruneOldBackups(`gaia-lake-backup-${period}-`, keep);
-}
-async function checkAutoBackups(){
-  if(!state.cloud.connected || !state.cloud.syncReady) return;
+  // Purely informational now (Settings status line only) — the decision of
+  // WHETHER to run has already been made by the caller (checkWeeklyMonthlyBackups'
+  // Drive existence check, or updateDailyBackupAfterPush firing on a real edit),
+  // this never gates anything.
   const rec = (await idbGet('meta','autoBackup')) || { key:'autoBackup', lastDaily:null, lastWeekly:null, lastMonthly:null };
+  if(period==='daily') rec.lastDaily = new Date().toISOString().slice(0,10);
+  else if(period==='weekly') rec.lastWeekly = isoWeekLabel(new Date());
+  else if(period==='monthly') rec.lastMonthly = new Date().toISOString().slice(0,7);
+  await idbPutRaw('meta', rec);
+}
+async function backupFileExists(filename, folderId){
+  const q = encodeURIComponent(`name='${filename.replace(/'/g,"\\'")}' and '${folderId}' in parents and trashed=false`);
+  const data = await driveFetchJson(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&spaces=drive`);
+  return !!(data.files && data.files.length);
+}
+/* v4.29 rework — the previous single checkAutoBackups() gated ALL THREE
+   periods off a LOCAL, per-device "have I run this yet" tracker, which had
+   two problems the user caught directly: (1) it ran on every 20s poll tick
+   regardless of whether anything actually changed, generating traffic for
+   its own sake; and (2) since the tracker was per-device, a second device
+   signing in the same week/month had no way to know the first device
+   already made that period's backup, and would re-run (re-PATCH) it anyway
+   — which is what silently updated yesterday's already-final weekly and
+   monthly files. Both are fixed by splitting into two very different rules:
+
+   - Weekly/Monthly: authoritative against DRIVE ITSELF, not local memory —
+     if a file already exists for this ISO week / calendar month, it is
+     never touched again by anyone, from any device, for the rest of that
+     period. Checked once at sign-in (satisfies "the next first day you log
+     in after Monday / after the 1st") and, cheaply, on each poll tick as a
+     safety net for a session left open across a period boundary — but that
+     repeat checking is just a single lightweight existence query, and does
+     nothing at all once the period's file exists.
+   - Daily: intentionally different — the user was fine with the daily file
+     updating every time the live JSON actually changes, so it is not
+     re-checked on a timer at all; it is only touched right after a REAL
+     successful push (see pushToCloud), tying it to actual edits instead of
+     the clock. A day with the app open but no edits gets no daily file,
+     which is expected. */
+async function checkWeeklyMonthlyBackups(){
+  if(!state.cloud.connected || !state.cloud.syncReady) return;
   const now = new Date();
-  const todayKey = now.toISOString().slice(0,10);
   const weekKey = isoWeekLabel(now);
   const monthKey = now.toISOString().slice(0,7);
-  let changed = false;
-  if(rec.lastDaily !== todayKey){
-    await runAutoBackup('daily', `gaia-lake-backup-daily-${todayKey}.json`);
-    rec.lastDaily = todayKey; changed = true;
-  }
-  if(rec.lastWeekly !== weekKey){
-    await runAutoBackup('weekly', `gaia-lake-backup-weekly-${weekKey}.json`);
-    rec.lastWeekly = weekKey; changed = true;
-  }
-  if(rec.lastMonthly !== monthKey){
-    await runAutoBackup('monthly', `gaia-lake-backup-monthly-${monthKey}.json`);
-    rec.lastMonthly = monthKey; changed = true;
-  }
-  if(changed){
-    await idbPutRaw('meta', rec); // idbPutRaw: writes without triggering a Drive push — this record is local bookkeeping only, never part of the synced JSON
-    updateAutoBackupStatusUI();
-  }
+  const folderId = await getOrCreateBackupFolderId();
+  const weeklyName = `gaia-lake-backup-weekly-${weekKey}.json`;
+  const monthlyName = `gaia-lake-backup-monthly-${monthKey}.json`;
+  let ran = false;
+  if(!(await backupFileExists(weeklyName, folderId))){ await runAutoBackup('weekly', weeklyName); ran = true; }
+  if(!(await backupFileExists(monthlyName, folderId))){ await runAutoBackup('monthly', monthlyName); ran = true; }
+  if(ran) updateAutoBackupStatusUI();
+}
+async function updateDailyBackupAfterPush(){
+  if(!state.cloud.connected || !state.cloud.syncReady) return;
+  const todayKey = new Date().toISOString().slice(0,10);
+  await runAutoBackup('daily', `gaia-lake-backup-daily-${todayKey}.json`);
+  updateAutoBackupStatusUI();
 }
 async function runManualBackupNow(){
   if(!state.cloud.connected){ showToast('Sign in to Google Drive first.','error'); return; }
@@ -4956,11 +5159,8 @@ async function runManualBackupNow(){
   const original = btn ? btn.textContent : '';
   if(btn){ btn.disabled = true; btn.textContent = 'Backing up…'; }
   try{
-    const now = new Date();
-    await runAutoBackup('daily', `gaia-lake-backup-daily-${now.toISOString().slice(0,10)}.json`);
-    const rec = (await idbGet('meta','autoBackup')) || { key:'autoBackup', lastDaily:null, lastWeekly:null, lastMonthly:null };
-    rec.lastDaily = now.toISOString().slice(0,10);
-    await idbPutRaw('meta', rec);
+    const todayKey = new Date().toISOString().slice(0,10);
+    await runAutoBackup('daily', `gaia-lake-backup-daily-${todayKey}.json`);
     updateAutoBackupStatusUI();
     showToast('Backup saved to the Backup folder on Drive.');
   }catch(err){
@@ -5850,37 +6050,6 @@ async function exportPdfFromHtml(html, filename, mode, page){
 window.addEventListener('afterprint', ()=>{ const r=document.getElementById('print-root'); if(r) r.innerHTML=''; });
 
 /* ---------------------------------------------------------------------------
-   20. SEED DATA
---------------------------------------------------------------------------- */
-async function seedIfEmpty(){
-  const existing = await idbGetAll('assets');
-  if(existing.length) return;
-
-  const seedDefs = [
-    { location:'Manager Room', category:'Furniture', name:'Office Chairs', qty:4, condition:'Usable', price:45.00, vendor:'Kandy Furniture Co.' },
-    { location:'Main Kitchen', category:'Appliances', name:'Commercial Refrigerator', qty:1, condition:'Usable', price:1250.00, vendor:'ColdTech Lanka' },
-    { location:'Generator Room', category:'Utilities', name:'Backup Generator System 20kVA', qty:1, condition:'Usable', price:3800.00, vendor:'PowerGen Sri Lanka' },
-    { location:'Room 1', category:'Electronics', name:'Smart LED Television 43"', qty:1, condition:'Usable', price:320.00, vendor:'Softlogic Retail' },
-    { location:'Guest Pantry', category:'Linen', name:'Cotton Bath Towels', qty:12, condition:'Usable', price:8.50, vendor:'Textura Mills' },
-    { location:'Lobby', category:'Furniture', name:'Rattan Lounge Sofa Set', qty:2, condition:'Usable', price:410.00, vendor:'Moratuwa Woodcraft' },
-  ];
-
-  const nowIso = nowISO();
-  for(const def of seedDefs){
-    const assetNumber = await nextAssetNumber();
-    const entry = {
-      id: uuid(), assetNumber, name: def.name, category: def.category, location: def.location,
-      qty: def.qty, condition: def.condition, purchasePrice: def.price,
-      purchaseDate: nowIso.slice(0,10), vendor: def.vendor, notes:'', imageSrc:'',
-      lastUpdated: nowIso, createdAt: nowIso
-    };
-    await idbPut('assets', entry);
-    state.assets.push(entry);
-    await logHistory('created', entry);
-  }
-}
-
-/* ---------------------------------------------------------------------------
    21. BOOT
 --------------------------------------------------------------------------- */
 async function loadAllData(){
@@ -5897,7 +6066,6 @@ async function boot(){
   try{
     await openDB();
     await loadAllData();
-    await seedIfEmpty();
     render();
     window.addEventListener('online', updateCloudBanner);
     window.addEventListener('offline', updateCloudBanner);
