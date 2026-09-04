@@ -191,7 +191,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.27</span>
+      <span id="sidebar-version">v4.28</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -223,7 +223,7 @@ or redistribution is strictly prohibited.
       <nav id="mobile-nav" class="space-y-1"></nav>
       <div class="pt-3 mt-2 border-t sidebar-border" id="cloud-sidebar-slot-mobile"></div>
       <div class="pt-3 mt-2 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between">
-        <span id="mobile-sidebar-version">v4.27</span>
+        <span id="mobile-sidebar-version">v4.28</span>
         <span class="grip-dot theme-bg"></span>
       </div>
     </div>
@@ -259,7 +259,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.27</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.28</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -525,6 +525,23 @@ function idbClear(storeName){
   return withStore(storeName, "readwrite", (store,resolve,reject)=>{
     const req = store.clear();
     req.onsuccess = ()=>{ resolve(true); scheduleCloudPush(storeName); };
+    req.onerror = (e)=>reject(e.target.error);
+  });
+}
+/* Same as idbClear but skips scheduleCloudPush — see idbPutRaw. Needed inside
+   mergeRemoteIntoLocalAssets: that function runs as PART OF a push/pull, so
+   its own internal clear-and-rewrite of the assets store must never itself
+   count as "new local changes" that need pushing — v4.27 shipped with a bug
+   where it used the normal idbClear here, which (during a PUSH specifically,
+   since only the PULL path sets applyingRemote to guard against exactly
+   this) re-armed the 500ms push timer on every single push, so a push would
+   trigger the merge, the merge would trigger idbClear, idbClear would
+   schedule another push 500ms later, forever — continuous Drive traffic
+   with zero real edits, entirely self-inflicted. */
+function idbClearRaw(storeName){
+  return withStore(storeName, "readwrite", (store,resolve,reject)=>{
+    const req = store.clear();
+    req.onsuccess = ()=>resolve(true);
     req.onerror = (e)=>reject(e.target.error);
   });
 }
@@ -1020,10 +1037,24 @@ async function nextAssetNumber(){
   const key = `YEAR-${yy}`;
   const counters = (await idbGet('meta','counters')) || { key:'counters', values:{} };
   const cur = counters.values[key];
-  const next = (cur===undefined ? -1 : cur) + 1;
+  let next = (cur===undefined ? -1 : cur) + 1;
+  let candidate = `${yy}${String(next).padStart(4,'0')}`;
+  // Once a QR code is physically printed and stuck on an item, its Asset
+  // Number can never change — so this cannot rely on the counter alone.
+  // The counter can occasionally drift a beat behind what is actually in
+  // use (e.g. right after a multi-device merge pulls in a higher-numbered
+  // asset from another device, a moment before the counter merge catches
+  // up) — so skip past anything already in use in the live assets list
+  // rather than trust the counter blindly. See also the Data Integrity
+  // checker in Settings, which catches anything that still slips through.
+  const usedNumbers = new Set(state.assets.map(a=>a.assetNumber).filter(Boolean));
+  while(usedNumbers.has(candidate)){
+    next++;
+    candidate = `${yy}${String(next).padStart(4,'0')}`;
+  }
   counters.values[key] = next;
   await idbPut('meta', counters);
-  return `${yy}${String(next).padStart(4,'0')}`;
+  return candidate;
 }
 async function peekAssetNumber(){
   const yy = String(new Date().getFullYear()).slice(-2);
@@ -1071,7 +1102,6 @@ async function autoFixAssetNumberConflicts(){
       fixed++;
     }
   }
-  if(fixed) render();
   return fixed;
 }
 
@@ -1101,6 +1131,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.28', date: nowISO(), type:'patch', summary:'CRITICAL FIX: found and fixed a bug from v4.27 that had the app continuously syncing to Drive even with zero edits — a background merge step was mistakenly re-triggering itself in a loop. Also: Last New Item Received now goes by Purchase Date instead of data-entry date, Asset Numbers get an extra collision check at the moment they are generated, and a duplicate-number warning now shows right on the Dashboard instead of only appearing when the Settings check is run manually.',
+    detail:'The continuous-syncing bug: v4.27 added a merge-before-push step so a concurrent edit from another device could not get silently overwritten. That merge step cleared and rewrote the local assets store as part of its own bookkeeping, and did so using the normal write function instead of the internal, non-syncing variant used everywhere else in that same step — so every push (even one triggered by nothing more than the routine 20 second background check) re-armed its own push timer for another 500ms later, forever, with no real edit anywhere in the loop. This is now fixed at the exact line that caused it, verified end to end. Last New Item Received: now shows whichever asset has the most recent Purchase Date, reading live asset records directly rather than a History log entry — this also sidesteps any risk of showing stale info if an item was later renamed or renumbered. Asset Number generation now cross-checks the candidate number against every asset number currently in memory before handing it out, on top of the existing per-year counter, closing the gap that let two devices generate the same number close together. Because a QR code already printed and stuck onto an item can never have its number changed after the fact, the app does not auto-renumber anything silently in the background even when it finds a conflict — it surfaces a clear warning banner on the Dashboard the moment one exists, linking straight to Settings, Data Integrity, where a person can review which item actually has a sticker on it before confirming which one gets the new number.' },
   { version:'4.27', date: nowISO(), type:'minor', summary:'Found and fixed the real cause of an Asset Number being reused between two different items — sync now merges instead of overwriting when more than one device is signed in. Also: Dashboard Last Updated/Last New Item cards are now clickable with images, and Save on the Edit form no longer logs a History entry when nothing was actually changed.',
     detail:'Root cause of the asset-number bug: two devices open around the same time could each add a new item within the same ~20 second poll window. Every push was a plain overwrite of the whole assets list, and every pull did a full clear-and-replace from whatever Drive returned, so whichever push landed second could silently erase the other device\'s new item from the live file (History kept a record either way, since History merges instead of overwriting, which is exactly why the Dashboard card still showed the old item). The asset-number counter itself was also purely local per device, so two devices could independently generate the same next number for two completely different items. Fixed by merging assets and the counter by id (newest edit wins) on every push and every pull instead of overwriting, with a proper deletion record so a merge cannot resurrect something a device deliberately deleted. Also added a Data Integrity checker in Settings (Check for Duplicate Asset Numbers) as a safety net, since two saves within the exact same fraction of a second could still theoretically collide — it finds any number shared between two differently named items and reassigns a fresh number to the older one with a History entry noting why. Dashboard: Last Updated Asset and Last New Item Received now look up the live current record instead of a frozen History snapshot, show the asset photo, location, category and condition, and are clickable straight into the Edit form with a hover highlight. Edit form: Save now compares the form against the untouched original before writing anything — if nothing on an existing item actually changed, it behaves as a plain close (same navigation, a "No changes made" toast) instead of writing an identical record and logging a no-op "updated" History entry.' },
   { version:'4.26', date: nowISO(), type:'patch', summary:'Fixed automatic backups creating duplicate files when more than one device (phone, PC, etc.) is signed in and runs its backup check around the same time.',
@@ -1225,6 +1257,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.25'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.26'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.27'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.28'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1264,7 +1297,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.27', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.28', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -1597,21 +1630,15 @@ function lastUpdatedAsset(){
   return a ? { asset:a, date:a.lastUpdated } : null;
 }
 function lastReceivedEntry(){
-  const received = state.history.filter(h=> h.action==='created' || h.action==='batch added');
-  if(!received.length) return null;
-  const historyEntry = received.reduce((latest, h)=> (!latest || new Date(h.date) > new Date(latest.date)) ? h : latest, null);
-  if(!historyEntry) return null;
-  // Look up the CURRENT live record instead of trusting the history
-  // snapshot verbatim — a history entry is a frozen point-in-time record,
-  // so if this asset was later renamed, or its number ever got reassigned to
-  // a different item (the exact bug this card surfaced — see the Data
-  // Integrity checker in Settings), showing the old snapshot here would
-  // still be actively wrong even after that gets fixed elsewhere.
-  const current = (historyEntry.assetId && state.assets.find(a=>a.id===historyEntry.assetId))
-    || (historyEntry.assetNumber && state.assets.find(a=>a.assetNumber===historyEntry.assetNumber))
-    || null;
-  if(!current) return null; // the asset this refers to no longer exists (deleted since) — nothing current to show
-  return { asset:current, date:historyEntry.date };
+  // "Received" means physically received — the asset's own Purchase Date —
+  // not whenever it happened to get typed into the app or last edited.
+  // Reading live state.assets directly also sidesteps the History-snapshot
+  // staleness problem entirely (no lookup, no risk of showing a frozen old
+  // name/number for an item that has since changed).
+  const withDate = state.assets.filter(a=>a.purchaseDate);
+  if(!withDate.length) return null;
+  const a = withDate.reduce((latest, x)=> (!latest || new Date(x.purchaseDate) > new Date(latest.purchaseDate)) ? x : latest, null);
+  return a ? { asset:a, date:a.purchaseDate } : null;
 }
 function periodConditionSummary(period){
   const now = new Date();
@@ -1707,6 +1734,12 @@ function renderDashboard(){
         </button>
       </div>
     </div>
+
+    ${(()=>{ const conflicts = findAssetNumberConflicts(); return conflicts.length ? `
+    <div class="flex items-center gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 text-xs">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M12 9v4M12 17h.01M10.29 3.86l-8.18 14.18A2 2 0 003.82 21h16.36a2 2 0 001.71-2.96L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+      <span class="flex-1">${conflicts.length} Asset Number${conflicts.length===1?' is':'s are'} shared between different items — since a printed QR code cannot be changed once stuck on an item, review and confirm which one keeps its number in <button data-action="goto-integrity" class="underline font-medium">Settings → Data Integrity</button> before printing any more labels for them.</span>
+    </div>` : ''; })()}
 
     <div class="relative">
       <div class="relative">
@@ -2585,6 +2618,9 @@ function bindViewEvents(){
   });
   document.querySelectorAll('[data-action="scan-qr"]').forEach(b=>{
     b.addEventListener('click', openQrScanner);
+  });
+  document.querySelectorAll('[data-action="goto-integrity"]').forEach(b=>{
+    b.addEventListener('click', ()=>{ navigateTo('settings'); setTimeout(()=>{ const el=document.getElementById('s-integrity-check'); if(el) el.scrollIntoView({behavior:'smooth', block:'center'}); }, 50); });
   });
   document.querySelectorAll('[data-nav]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -4479,7 +4515,7 @@ async function mergeRemoteIntoLocalAssets(remote){
   const mergedTombstones = mergeTombstones(localTombstones.values, remote && remote.deletedTombstones);
   const mergedCounters = mergeCounters(localCounters.values, remote && remote.counters);
   const mergedAssets = mergeAssetSets(state.assets, remote && remote.assets, mergedTombstones);
-  await idbClear('assets');
+  await idbClearRaw('assets');
   for(const a of mergedAssets) await idbPutRaw('assets', a);
   await idbPutRaw('meta', { key:'deletedTombstones', values: mergedTombstones });
   await idbPutRaw('meta', { key:'counters', values: mergedCounters });
