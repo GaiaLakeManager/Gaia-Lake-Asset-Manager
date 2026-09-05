@@ -1150,6 +1150,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.35', date: nowISO(), type:'patch', summary:'History now stays in sync on devices that are not the one making the edit. It previously only ever pulled from Drive once per session, so a device that was just viewing History (not editing) could sit indefinitely on whatever it loaded early in the session while other devices kept adding entries.',
+    detail:'The Settings message confirmed each device was correctly loading and pushing History with no error, but that only happens once per device per session (the first time it is needed), unlike the live asset file, which is checked against Drive roughly every 20 seconds regardless of whether that device is editing anything. So three devices open around the same time would each do their one History pull early on, and whichever one edited something afterward correctly merged and pushed it to Drive (v4.33) — but the other two, having already done their one pull for the session, never checked again and kept showing their older list. Added the same kind of check the asset file already has: every ~20-second background tick now also asks Drive whether the History file has changed since this device last saw it, and pulls and merges (same merge logic already in place) if so. A device that is just sitting on the History page, not editing at all, should now pick up another device\'s update within about 20 seconds, the same way the Dashboard already does.' },
   { version:'4.34', date: nowISO(), type:'patch', summary:'Added visibility into why the History archive might not be reaching Google Drive: a persistent error line on Settings (next to "History archive last synced…") now shows the actual reason if a History sync fails, instead of only a toast message that is easy to miss on a background sync nobody is watching happen.',
     detail:'After v4.33\'s fix, a report came in that the History file\'s "Date modified" on Drive still was not updating at all — not just showing a stale date, but genuinely receiving zero successful writes since a much earlier date, even though the live asset file and Dashboard were updating correctly. That is a different symptom than v4.32/v4.33 addressed, and nothing in the app surfaced why a History sync attempt might be failing outright — only a transient toast that disappears, easy to miss on an automatic background push nobody is actively watching. This version does not change the sync logic itself; it adds a persistent "Last history sync error" line to Settings (matching the one the asset file has always had) so the real underlying error, if any, is visible and can be diagnosed from there instead of guessed at blindly.' },
   { version:'4.33', date: nowISO(), type:'patch', summary:'Fixed two follow-on issues from v4.32: (1) existing installs kept showing the old version number in the sidebar/footer after an update because a step needed to carry the new version forward to devices that already had data was missed, and (2) multiple devices editing around the same time could each silently overwrite each other\'s History log entries on Drive, so different devices showed different History lists and a recent update could vanish from everyone\'s view but the device that made it.',
@@ -1295,6 +1297,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.32'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.33'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.34'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.35'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1334,7 +1337,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.34', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.35', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -5283,6 +5286,30 @@ async function pollCloud(){
     }
     // Other transient errors (e.g. a momentary network blip) stay silent;
     // the next poll tick or a manual Sync Now recovers on its own.
+  }
+  // Fixed in v4.35: the active asset file gets checked against Drive on
+  // every poll tick above, even on a device doing nothing but sitting on a
+  // screen — the History archive never had an equivalent check. It was only
+  // ever pulled once, the first time a device loaded it this session (via
+  // ensureHistoryCloudLoaded), so any device that never edits again this
+  // session never sees what other devices push afterward, even though their
+  // own push (v4.33) is correctly merged and lands on Drive fine. Mirrors
+  // the active-file check above: ask Drive if the History file changed, and
+  // pull+merge (existing applyRemoteHistoryData) if so.
+  try{
+    if(state.cloud.historyLoaded && state.cloud.historyFileId && !state.cloud.historySyncing && !state.cloud.applyingRemote){
+      const historyMeta = await getMasterFileMeta(state.cloud.historyFileId);
+      if(historyMeta.modifiedTime && historyMeta.modifiedTime !== state.cloud.lastHistoryRemoteModified){
+        const remoteHistory = await downloadMasterFile(state.cloud.historyFileId);
+        await applyRemoteHistoryData(remoteHistory);
+        state.cloud.lastHistoryRemoteModified = historyMeta.modifiedTime;
+        state.cloud.lastHistorySync = nowISO();
+        updateCloudTimestampsUI();
+      }
+    }
+  }catch(err){
+    // Same treatment as the active-file check above: stay quiet on a
+    // transient blip, the next poll tick or a manual Sync Now recovers.
   }
   // Watchdog: a push can get deferred (dirty=true) if it was attempted while a
   // pull was mid-flight or before syncReady flipped true, and nothing else was
