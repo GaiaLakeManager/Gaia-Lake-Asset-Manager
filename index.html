@@ -191,7 +191,7 @@ or redistribution is strictly prohibited.
     <nav class="flex-1 p-2.5 space-y-1" id="sidebar-nav"></nav>
     <div class="p-2.5 border-t sidebar-border shrink-0" id="cloud-sidebar-slot"></div>
     <div class="p-3 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between shrink-0">
-      <span id="sidebar-version">v4.30</span>
+      <span id="sidebar-version">v4.31</span>
       <span class="grip-dot theme-bg"></span>
     </div>
   </aside>
@@ -223,7 +223,7 @@ or redistribution is strictly prohibited.
       <nav id="mobile-nav" class="space-y-1"></nav>
       <div class="pt-3 mt-2 border-t sidebar-border" id="cloud-sidebar-slot-mobile"></div>
       <div class="pt-3 mt-2 border-t sidebar-border text-[11px] sidebar-muted font-mono flex items-center justify-between">
-        <span id="mobile-sidebar-version">v4.30</span>
+        <span id="mobile-sidebar-version">v4.31</span>
         <span class="grip-dot theme-bg"></span>
       </div>
     </div>
@@ -259,7 +259,7 @@ or redistribution is strictly prohibited.
 
 <!-- ===================== VISIBLE FOOTER CREDIT ===================== -->
 <footer class="w-full shrink-0 text-center py-2 lg:py-1.5 text-[11px] lg:text-[10px] text-[#8a8471] bg-[#F7F5EF] border-t border-[#E7E2D3] pb-16 lg:pb-1.5 no-print">
-  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.30</span> | Copyright © 2026. All rights reserved.
+  Developed by Prasanna Kurukuladithya (Priya) | Gaia Lake Kandalama - Sri Lanka | <span id="footer-version">v4.31</span> | Copyright © 2026. All rights reserved.
 </footer>
 </div>
 
@@ -995,6 +995,7 @@ const state = {
   activeLocation: null,
   assets: [],                  // all line-items from IndexedDB
   history: [],
+  deletionRequests: [],        // pending/resolved deletion requests from Standard Manager accounts — mirrors idb meta 'deletionRequests', synced like everything else so the Administrator sees requests made from any device
   settings: {
     companyName: DEFAULT_COMPANY.companyName, address: DEFAULT_COMPANY.address,
     phone: DEFAULT_COMPANY.phone, email: DEFAULT_COMPANY.email, website: DEFAULT_COMPANY.website,
@@ -1149,6 +1150,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.31', date: nowISO(), type:'minor', summary:'History page now has Date/Action/Condition filters. Deleting an asset is now Administrator-only everywhere in the app — a Standard Manager account pressing Delete now files a request (with a required reason) for the Administrator to approve or decline from Settings, instead of deleting anything directly.',
+    detail:'History: added Action, Condition and From/To Date filters alongside the existing search and sort, with a live result count and a one-click Clear. Viewing/editing an asset from a History row (the eye icon, which actually opens the full Edit form) and deleting a History record are now Administrator-only actions — Print and PDF export stay available to everyone since those are read-only reporting, not edit access. Deletion requests: every place an asset could be deleted (the Edit form Delete button, Location roster Delete Selected, and deleting a single condition-split entry) now checks the signed-in account. The Administrator account keeps deleting directly, exactly as before. Any other signed-in account gets asked for a reason instead, and that becomes a pending request — Asset Number, Name, Location, Category, Qty, Condition and Reason — that syncs to Drive like everything else, so it reaches the Administrator from whichever device they next check. A new Deletion Requests section in Settings (Administrator only) lists pending requests with Approve (performs the deletion) and Decline (dismisses it) buttons, plus a short history of recently resolved ones, and the Dashboard shows a clear banner the moment a request is waiting. Each request also has a one-click email link pre-filled with its details — true automatic email sending would need a third-party email service wired in, which is not currently part of this app, so this is a manual send rather than a background one for now.' },
   { version:'4.30', date: nowISO(), type:'patch', summary:'Removed the built-in demo/sample-data seeder entirely.',
     detail:'The app used to auto-populate 6 sample assets (Office Chairs, Commercial Refrigerator, Backup Generator System 20kVA, Smart LED Television 43 inch, Cotton Bath Towels, Rattan Lounge Sofa Set) on any completely empty database, meant only to avoid a blank screen on a brand-new install. That check ran on every boot regardless of cloud connection state, and its writes were not exempt from the normal sync path — so on a device with empty local storage that had not yet finished pulling the real database down from Drive, it could seed those demo items locally and then genuinely push them into the live shared database, where the multi-device merge introduced in v4.27 would keep them rather than overwrite them away. Removed the function and its boot-time call outright rather than trying to gate it more carefully, since a production app in daily real use never needs a first-run demo seed. Also trims the file size slightly.' },
   { version:'4.29', date: nowISO(), type:'minor', summary:'Last New Item Received now goes strictly by Purchase Date and never invents one; a new Bulk Correct Existing Records tool updates fields like Purchase Date from a corrected spreadsheet without ever touching Asset Numbers or creating new items; and weekly/monthly automatic backups no longer get modified after the fact when more than one device is in use.',
@@ -1282,6 +1285,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.28'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.29'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.30'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.31'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1321,7 +1325,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.30', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.31', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -1763,6 +1767,12 @@ function renderDashboard(){
     <div class="flex items-center gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 text-xs">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M12 9v4M12 17h.01M10.29 3.86l-8.18 14.18A2 2 0 003.82 21h16.36a2 2 0 001.71-2.96L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
       <span class="flex-1">${conflicts.length} Asset Number${conflicts.length===1?' is':'s are'} shared between different items — since a printed QR code cannot be changed once stuck on an item, review and confirm which one keeps its number in <button data-action="goto-integrity" class="underline font-medium">Settings → Data Integrity</button> before printing any more labels for them.</span>
+    </div>` : ''; })()}
+
+    ${(()=>{ if(!isAdminSession()) return ''; const pending = pendingDeletionRequests(); return pending.length ? `
+    <div class="flex items-center gap-2.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-2.5 text-xs">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6"/></svg>
+      <span class="flex-1">${pending.length} deletion request${pending.length===1?'':'s'} awaiting your approval — <button data-action="goto-requests" class="underline font-medium">review in Settings → Deletion Requests</button>.</span>
     </div>` : ''; })()}
 
     <div class="relative">
@@ -2586,6 +2596,11 @@ function hasEditableFieldsChanged(a, b){
 async function deleteCurrentItem(){
   const e = state.editing;
   if(!e || !e.id) return;
+  if(!isAdminSession()){
+    await requestAssetDeletion([e]);
+    navigateTo('location', e.location);
+    return;
+  }
   const ok = await askConfirm('Delete this item?', 'This will permanently remove it from active inventory. A history record will be kept.');
   if(!ok) return;
   await idbDelete('assets', e.id);
@@ -2648,6 +2663,9 @@ function bindViewEvents(){
   });
   document.querySelectorAll('[data-action="goto-integrity"]').forEach(b=>{
     b.addEventListener('click', ()=>{ navigateTo('settings'); setTimeout(()=>{ const el=document.getElementById('s-integrity-check'); if(el) el.scrollIntoView({behavior:'smooth', block:'center'}); }, 50); });
+  });
+  document.querySelectorAll('[data-action="goto-requests"]').forEach(b=>{
+    b.addEventListener('click', ()=>{ navigateTo('settings'); setTimeout(()=>{ const el=document.querySelector('[data-req-approve], [data-req-decline]'); if(el) el.closest('section').scrollIntoView({behavior:'smooth', block:'center'}); }, 50); });
   });
   document.querySelectorAll('[data-nav]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -2728,6 +2746,7 @@ function bindViewEvents(){
     const id = b.getAttribute('data-del-entry');
     const entry = state.assets.find(a=>a.id===id);
     if(!entry) return;
+    if(!isAdminSession()){ await requestAssetDeletion([entry]); return; }
     const ok = await askConfirm('Delete this entry?', `Remove ${entry.qty} × ${entry.condition} from ${entry.assetNumber}.`);
     if(!ok) return;
     await idbDelete('assets', id);
@@ -2865,6 +2884,10 @@ function bindViewEvents(){
 --------------------------------------------------------------------------- */
 let historySearch = '';
 let historySort = 'date_desc';
+let historyFilterAction = 'all';
+let historyFilterCondition = 'all';
+let historyFilterDateFrom = '';
+let historyFilterDateTo = '';
 let dashSearch = '';
 let dashPeriod = 'month';
 let dashRosterOpen = false;
@@ -2874,12 +2897,13 @@ let cloudConfigEditing = false;
 
 function renderHistoryView(){
   const rows = filterSortHistory();
+  const distinctActions = Array.from(new Set(state.history.map(h=>h.action))).sort();
   return `
   <div class="space-y-4">
     <div>
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h1 class="font-display text-2xl font-semibold">History</h1>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <input id="hist-search" type="text" placeholder="Search history…" value="${escapeHtml(historySearch)}" class="inp w-52"/>
           <select id="hist-sort" class="inp w-40">
             <option value="date_desc" ${historySort==='date_desc'?'selected':''}>Newest First</option>
@@ -2891,6 +2915,32 @@ function renderHistoryView(){
         </div>
       </div>
       <p class="text-xs text-[#8a8471] mt-1.5">This is a running log of every action taken over time, so the same item can appear more than once. For an item's <span class="font-semibold">current</span> quantities, open it on its Location page — quantities here reflect what was true at the moment each entry was logged.</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-[#E7E2D3] p-3.5 flex flex-wrap items-end gap-3">
+      <div>
+        <label class="lbl block mb-1">Action</label>
+        <select id="hist-filter-action" class="inp w-40">
+          <option value="all" ${historyFilterAction==='all'?'selected':''}>All Actions</option>
+          ${distinctActions.map(a=>`<option value="${escapeHtml(a)}" ${historyFilterAction===a?'selected':''}>${escapeHtml(a)}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label class="lbl block mb-1">Condition</label>
+        <select id="hist-filter-condition" class="inp w-40">
+          <option value="all" ${historyFilterCondition==='all'?'selected':''}>All Conditions</option>
+          ${CONDITIONS.map(c=>`<option value="${escapeHtml(c.key)}" ${historyFilterCondition===c.key?'selected':''}>${escapeHtml(c.key)}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label class="lbl block mb-1">From</label>
+        <input id="hist-filter-from" type="date" value="${historyFilterDateFrom}" class="inp w-40"/>
+      </div>
+      <div>
+        <label class="lbl block mb-1">To</label>
+        <input id="hist-filter-to" type="date" value="${historyFilterDateTo}" class="inp w-40"/>
+      </div>
+      ${(historyFilterAction!=='all'||historyFilterCondition!=='all'||historyFilterDateFrom||historyFilterDateTo) ? `<button id="hist-filter-clear" class="text-xs text-[#8a8471] underline px-1 py-2">Clear filters</button>` : ''}
+      <span class="text-xs text-[#a89f85] ml-auto">${rows.length} record${rows.length===1?'':'s'}</span>
     </div>
     <div class="bg-white rounded-2xl border border-[#E7E2D3] overflow-x-auto">
       <table class="w-full text-xs min-w-[900px]">
@@ -2907,6 +2957,7 @@ function renderHistoryView(){
   </div>`;
 }
 function historyRowsHtml(rows){
+  const admin = isAdminSession();
   return rows.length ? rows.map(h=>{
     const c = condMeta(h.condition);
     return `<tr class="border-b border-[#F5F2E8] last:border-0 hover:bg-[#FAF8F1]">
@@ -2920,10 +2971,10 @@ function historyRowsHtml(rows){
       <td class="px-4 py-2 text-[#8a8471]">${fmtDate(h.date)}</td>
       <td class="px-4 py-2">
         <div class="flex justify-end gap-1">
-          <button data-hist-open="${h.id}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Open">${iconEye()}</button>
+          ${admin ? `<button data-hist-open="${h.id}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Open (Administrator only)">${iconEye()}</button>` : ''}
           <button data-hist-print="${h.id}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Print">${iconPrinter()}</button>
           <button data-hist-pdf="${h.id}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Export PDF">${iconDownload()}</button>
-          <button data-hist-del="${h.id}" class="p-1.5 rounded-lg hover:bg-red-50 text-red-500" title="Delete Record">${iconTrash()}</button>
+          ${admin ? `<button data-hist-del="${h.id}" class="p-1.5 rounded-lg hover:bg-red-50 text-red-500" title="Delete Record (Administrator only)">${iconTrash()}</button>` : ''}
         </div>
       </td>
     </tr>`;
@@ -2939,6 +2990,10 @@ function filterSortHistory(){
     const q = historySearch.toLowerCase();
     rows = rows.filter(h=> (h.itemName||'').toLowerCase().includes(q) || (h.assetNumber||'').toLowerCase().includes(q) || (h.location||'').toLowerCase().includes(q) || (h.category||'').toLowerCase().includes(q));
   }
+  if(historyFilterAction!=='all') rows = rows.filter(h=>h.action===historyFilterAction);
+  if(historyFilterCondition!=='all') rows = rows.filter(h=>h.condition===historyFilterCondition);
+  if(historyFilterDateFrom) rows = rows.filter(h=> new Date(h.date) >= new Date(historyFilterDateFrom+'T00:00:00'));
+  if(historyFilterDateTo) rows = rows.filter(h=> new Date(h.date) <= new Date(historyFilterDateTo+'T23:59:59'));
   switch(historySort){
     case 'date_asc': rows.sort((a,b)=> new Date(a.date)-new Date(b.date)); break;
     case 'name': rows.sort((a,b)=> (a.itemName||'').localeCompare(b.itemName||'')); break;
@@ -2959,10 +3014,21 @@ function bindHistoryEvents(){
   if(s) s.addEventListener('input', debounce(()=>{ historySearch = s.value; refreshHistoryTable(); }, 150));
   const so = document.getElementById('hist-sort');
   if(so) so.addEventListener('change', ()=>{ historySort = so.value; refreshHistoryTable(); });
+  const fa = document.getElementById('hist-filter-action');
+  if(fa) fa.addEventListener('change', ()=>{ historyFilterAction = fa.value; render(); });
+  const fc = document.getElementById('hist-filter-condition');
+  if(fc) fc.addEventListener('change', ()=>{ historyFilterCondition = fc.value; render(); });
+  const ff = document.getElementById('hist-filter-from');
+  if(ff) ff.addEventListener('change', ()=>{ historyFilterDateFrom = ff.value; render(); });
+  const ft = document.getElementById('hist-filter-to');
+  if(ft) ft.addEventListener('change', ()=>{ historyFilterDateTo = ft.value; render(); });
+  const fclear = document.getElementById('hist-filter-clear');
+  if(fclear) fclear.addEventListener('click', ()=>{ historyFilterAction='all'; historyFilterCondition='all'; historyFilterDateFrom=''; historyFilterDateTo=''; render(); });
   bindHistoryRowActions();
 }
 function bindHistoryRowActions(){
   document.querySelectorAll('[data-hist-open]').forEach(b=>b.addEventListener('click', ()=>{
+    if(!isAdminSession()){ showToast('Only the Administrator account can open/edit from History.','error'); return; }
     const rec = state.history.find(h=>h.id===b.getAttribute('data-hist-open'));
     if(!rec) return;
     const live = state.assets.find(a=>a.id===rec.assetNumber || (a.assetNumber===rec.assetNumber && a.condition===rec.condition));
@@ -2981,6 +3047,7 @@ function bindHistoryRowActions(){
     exportSinglePdf(live || rec);
   }));
   document.querySelectorAll('[data-hist-del]').forEach(b=>b.addEventListener('click', async ()=>{
+    if(!isAdminSession()){ showToast('Only the Administrator account can delete a history record.','error'); return; }
     const id = b.getAttribute('data-hist-del');
     const ok = await askConfirm('Delete history record?', 'This only removes the historical log entry, not the live asset.');
     if(!ok) return;
@@ -3244,6 +3311,16 @@ function renderSettingsView(){
       </div>
       <div id="s-integrity-result"></div>
     </section>` : adminLockNotice('Data Integrity')}
+
+    ${admin ? `
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-3">
+      <div class="flex items-center justify-between">
+        <p class="font-display font-semibold">Deletion Requests</p>
+        ${pendingDeletionRequests().length ? `<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-600">${pendingDeletionRequests().length} pending</span>` : ''}
+      </div>
+      <p class="text-xs text-[#8a8471]">Standard Manager accounts can no longer delete an asset directly — pressing Delete files a request here instead, with a reason. Approving performs the deletion; declining just dismisses the request. Nothing is removed until you act on it.</p>
+      ${deletionRequestsPanelHtml()}
+    </section>` : ''}
 
     ${admin ? `
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
@@ -3600,6 +3677,20 @@ function bindSettingsEvents(){
     showToast(`Fixed ${fixed} record${fixed===1?'':'s'}.`);
     render();
   });
+  document.querySelectorAll('[data-req-approve]').forEach(b=>b.addEventListener('click', async ()=>{
+    const req = state.deletionRequests.find(r=>r.id===b.getAttribute('data-req-approve'));
+    if(!req) return;
+    const ok = await askConfirm('Approve this deletion?', `This permanently deletes "${req.name}" (${req.assetNumber}) from active inventory. A history record will be kept.`);
+    if(!ok) return;
+    await approveDeletionRequest(req.id);
+  }));
+  document.querySelectorAll('[data-req-decline]').forEach(b=>b.addEventListener('click', async ()=>{
+    const req = state.deletionRequests.find(r=>r.id===b.getAttribute('data-req-decline'));
+    if(!req) return;
+    const ok = await askConfirm('Decline this request?', `"${req.name}" (${req.assetNumber}) will not be deleted. The request is kept as a declined record.`);
+    if(!ok) return;
+    await declineDeletionRequest(req.id);
+  }));
   updateAutoBackupStatusUI();
 }
 
@@ -4195,6 +4286,11 @@ async function bulkDeleteSelected(){
   if(state.selectedGroups.size===0){ showToast('Select at least one item first.','error'); return; }
   const groupKeys = [...state.selectedGroups];
   const rows = state.assets.filter(a=>groupKeys.includes(a.assetNumber));
+  if(!isAdminSession()){
+    const ok = await requestAssetDeletion(rows);
+    if(ok){ state.selectMode = false; state.selectedGroups = new Set(); render(); }
+    return;
+  }
   const totalQty = rows.reduce((s,a)=>s+Number(a.qty||0),0);
   const ok = await askConfirm(`Delete ${groupKeys.length} selected item group(s)?`, `This removes ${rows.length} record(s) totalling ${totalQty} pcs. History keeps a record for audit, but this can't be undone from here — export a backup first if unsure.`);
   if(!ok) return;
@@ -4208,6 +4304,120 @@ async function bulkDeleteSelected(){
   state.selectMode = false; state.selectedGroups = new Set();
   render();
   showToast(`Deleted ${rows.length} record(s).`,'info');
+}
+/* ---------------------------------------------------------------------------
+   DELETION REQUESTS (v4.31) — a Standard Manager account can no longer delete
+   an asset directly. Pressing Delete instead files a request (with a
+   required reason) that syncs to Drive like everything else, so the
+   Administrator sees it from any device/signed-in session and approves or
+   declines it from Settings — nothing is actually removed until then.
+--------------------------------------------------------------------------- */
+async function requestAssetDeletion(items){
+  if(!items || !items.length) return false;
+  const label = items.length===1 ? `"${items[0].name}" (${items[0].assetNumber})` : `${items.length} selected items`;
+  const reason = prompt(`Reason for requesting deletion of ${label}:\n\nThis sends a request to the Administrator for approval — nothing is deleted yet.`);
+  if(reason === null) return false; // cancelled
+  if(!reason.trim()){ showToast('A reason is required to submit a deletion request.','error'); return false; }
+  const rec = (await idbGet('meta','deletionRequests')) || { key:'deletionRequests', list:[] };
+  const now = nowISO();
+  items.forEach(item=>{
+    rec.list.push({
+      id: uuid(), assetId: item.id, assetNumber: item.assetNumber, name: item.name,
+      location: item.location, category: item.category, qty: item.qty, condition: item.condition,
+      reason: reason.trim(),
+      requestedBy: state.cloud.userEmail || 'Unknown user',
+      requestedAt: now,
+      status: 'pending'
+    });
+  });
+  state.deletionRequests = rec.list;
+  await idbPut('meta', rec);
+  showToast(`Deletion request sent to the Administrator for ${items.length} item${items.length===1?'':'s'}.`, 'info');
+  return true;
+}
+function pendingDeletionRequests(){
+  return state.deletionRequests.filter(r=>r.status==='pending');
+}
+function deletionRequestsPanelHtml(){
+  const pending = pendingDeletionRequests();
+  const resolved = state.deletionRequests
+    .filter(r=>r.status!=='pending')
+    .sort((a,b)=> new Date(b.resolvedAt||0) - new Date(a.resolvedAt||0))
+    .slice(0, 8);
+  const reqRow = (r, isPending)=>`
+    <div class="border border-[#E7E2D3] rounded-xl p-3 text-xs space-y-1.5 ${isPending?'':'opacity-70'}">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <p class="font-display font-semibold text-sm">${escapeHtml(r.name||'Untitled')} <span class="font-mono text-[#a89f85] font-normal">${escapeHtml(r.assetNumber||'')}</span></p>
+          <p class="text-[#8a8471]">${escapeHtml(r.location||'—')} · ${escapeHtml(r.category||'—')} · Qty ${r.qty} · ${escapeHtml(r.condition||'—')}</p>
+        </div>
+        ${isPending ? '' : `<span class="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium ${r.status==='approved'?'bg-red-100 text-red-600':'bg-[#F1EEE3] text-[#8a8471]'}">${r.status}</span>`}
+      </div>
+      <p><span class="text-[#8a8471]">Reason:</span> ${escapeHtml(r.reason||'—')}</p>
+      <p class="text-[#a89f85]">Requested by ${escapeHtml(r.requestedBy||'Unknown')} · ${fmtDateTime(new Date(r.requestedAt))}${!isPending && r.resolvedBy ? ` · ${r.status} by ${escapeHtml(r.resolvedBy)} · ${fmtDateTime(new Date(r.resolvedAt))}` : ''}</p>
+      ${isPending ? `
+      <div class="flex flex-wrap gap-2 pt-1">
+        <button data-req-approve="${r.id}" class="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700">Approve (Delete)</button>
+        <button data-req-decline="${r.id}" class="px-3 py-1.5 rounded-lg border border-[#E2DFD3] text-xs font-medium hover:bg-[#F1EEE3]">Decline</button>
+        <a href="${deletionRequestMailtoLink(r)}" class="px-3 py-1.5 rounded-lg border border-[#E2DFD3] text-xs font-medium hover:bg-[#F1EEE3] inline-flex items-center gap-1.5">${iconMail()} Email</a>
+      </div>` : ''}
+    </div>`;
+  return `
+    <div class="space-y-2.5">
+      ${pending.length ? pending.map(r=>reqRow(r,true)).join('') : `<p class="text-xs text-[#a89f85]">No pending requests.</p>`}
+    </div>
+    ${resolved.length ? `
+    <details class="pt-1">
+      <summary class="text-xs text-[#8a8471] cursor-pointer select-none">Recently resolved (${resolved.length})</summary>
+      <div class="space-y-2.5 mt-2.5">${resolved.map(r=>reqRow(r,false)).join('')}</div>
+    </details>` : ''}
+  `;
+}
+function iconMail(){ return `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M22 6l-10 7L2 6"/></svg>`; }
+async function approveDeletionRequest(reqId){
+  if(!isAdminSession()) return;
+  const rec = (await idbGet('meta','deletionRequests')) || { key:'deletionRequests', list:[] };
+  const req = rec.list.find(r=>r.id===reqId);
+  if(!req) return;
+  const item = state.assets.find(a=>a.id===req.assetId) || state.assets.find(a=>a.assetNumber===req.assetNumber && a.name===req.name);
+  if(item){
+    await idbDelete('assets', item.id);
+    state.assets = state.assets.filter(a=>a.id!==item.id);
+    await logHistory('deleted', Object.assign({}, item, { notes: `Deleted via an approved deletion request — reason given: "${req.reason}" (requested by ${req.requestedBy}).` }));
+    moveAssetImageToDeletedFolder(item, state.assets);
+  }
+  req.status = 'approved';
+  req.resolvedAt = nowISO();
+  req.resolvedBy = state.cloud.userEmail || 'Administrator';
+  state.deletionRequests = rec.list;
+  await idbPut('meta', rec);
+  showToast(item ? 'Request approved — item deleted.' : 'Request approved, but that item no longer exists (already changed or deleted).', 'info');
+  render();
+}
+async function declineDeletionRequest(reqId){
+  if(!isAdminSession()) return;
+  const rec = (await idbGet('meta','deletionRequests')) || { key:'deletionRequests', list:[] };
+  const req = rec.list.find(r=>r.id===reqId);
+  if(!req) return;
+  req.status = 'declined';
+  req.resolvedAt = nowISO();
+  req.resolvedBy = state.cloud.userEmail || 'Administrator';
+  state.deletionRequests = rec.list;
+  await idbPut('meta', rec);
+  showToast('Request declined.', 'info');
+  render();
+}
+/* mailto: is used instead of a fully automated email send — sending mail
+   directly from a static client-side app with no backend needs a
+   third-party service (e.g. EmailJS) that is not currently wired up here.
+   This opens the Administrator's own email client with the request details
+   pre-filled, so notifying by email is still one click, not zero. */
+function deletionRequestMailtoLink(req){
+  const subject = encodeURIComponent(`Deletion request: ${req.name} (${req.assetNumber})`);
+  const body = encodeURIComponent(
+    `Asset Number: ${req.assetNumber}\nName: ${req.name}\nLocation: ${req.location}\nCategory: ${req.category}\nQty: ${req.qty}\nCondition: ${req.condition}\nReason: ${req.reason}\nRequested by: ${req.requestedBy}\nRequested at: ${fmtDateTime(new Date(req.requestedAt))}`
+  );
+  return `mailto:?subject=${subject}&body=${body}`;
 }
 async function deleteAllRecords(){
   if(!isAdminSession()){ showToast('Only the Administrator account can delete all records.','error'); return; }
@@ -4676,22 +4886,41 @@ async function recordDeletionTombstone(id){
    see idbPutRaw), and updates state.assets in memory. Used by both
    pushToCloud (merge-before-send) and applyRemoteActiveData (merge-on-pull),
    so the two directions can never fight each other. */
+/* Deletion requests merge by id, preferring whichever copy is no longer
+   "pending" on a conflict — once the Administrator has approved or declined
+   a request, that resolution should never get clobbered back to pending by
+   a stale copy still in flight from another device. */
+function mergeDeletionRequests(local, remote){
+  const map = new Map();
+  (remote||[]).forEach(r=> r && r.id && map.set(r.id, r));
+  (local||[]).forEach(r=>{
+    if(!r || !r.id) return;
+    const existing = map.get(r.id);
+    if(!existing || existing.status==='pending' || r.status!=='pending') map.set(r.id, r);
+  });
+  return Array.from(map.values());
+}
 async function mergeRemoteIntoLocalAssets(remote){
   const localTombstones = (await idbGet('meta','deletedTombstones')) || { values:{} };
   const localCounters = (await idbGet('meta','counters')) || { values:{} };
+  const localDelReq = (await idbGet('meta','deletionRequests')) || { list:[] };
   const mergedTombstones = mergeTombstones(localTombstones.values, remote && remote.deletedTombstones);
   const mergedCounters = mergeCounters(localCounters.values, remote && remote.counters);
   const mergedAssets = mergeAssetSets(state.assets, remote && remote.assets, mergedTombstones);
+  const mergedDelReq = mergeDeletionRequests(localDelReq.list, remote && remote.deletionRequests);
   await idbClearRaw('assets');
   for(const a of mergedAssets) await idbPutRaw('assets', a);
   await idbPutRaw('meta', { key:'deletedTombstones', values: mergedTombstones });
   await idbPutRaw('meta', { key:'counters', values: mergedCounters });
+  await idbPutRaw('meta', { key:'deletionRequests', list: mergedDelReq });
   state.assets = mergedAssets;
-  return { mergedAssets, mergedCounters, mergedTombstones };
+  state.deletionRequests = mergedDelReq;
+  return { mergedAssets, mergedCounters, mergedTombstones, mergedDelReq };
 }
 async function buildActivePayload(){
   const counters = await idbGet('meta','counters');
   const tombstones = await idbGet('meta','deletedTombstones');
+  const delReq = await idbGet('meta','deletionRequests');
   return {
     savedAt: nowISO(),
     assets: state.assets,
@@ -4700,7 +4929,8 @@ async function buildActivePayload(){
     locations: LOCATIONS,
     meta: { version: state.meta.version },
     counters: counters ? counters.values : {},
-    deletedTombstones: tombstones ? tombstones.values : {}
+    deletedTombstones: tombstones ? tombstones.values : {},
+    deletionRequests: delReq ? delReq.list : []
   };
 }
 function buildHistoryPayload(){
@@ -6060,6 +6290,8 @@ async function loadAllData(){
   await loadSettings();
   await loadCloudConfig();
   await initMeta();
+  const delReqRec = await idbGet('meta','deletionRequests');
+  state.deletionRequests = (delReqRec && Array.isArray(delReqRec.list)) ? delReqRec.list : [];
 }
 
 async function boot(){
