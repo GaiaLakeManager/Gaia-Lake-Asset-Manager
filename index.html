@@ -1150,6 +1150,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.40', date: nowISO(), type:'patch', summary:'Diagnostic only, no behavior change: the "not resolved" error introduced in v4.39 was too generic to say which Drive step actually failed on mobile — this version labels each step so the next attempt shows exactly where and why.',
+    detail:'v4.39 correctly caught that historyFileId was ending up empty on mobile, but none of the four Drive calls involved (checking a cached id, searching by name, downloading, or creating) were throwing their own error — meaning something was failing at the response level rather than the network level, and the generic message could not say which step or why. Each step now wraps its own try/catch and reports its name if it throws, and the name-search/create steps additionally check that Drive\u2019s response actually included a file id and print the raw (truncated) response if not, rather than silently accepting an incomplete result. This should turn the next occurrence into an actionable error message instead of another guess.' },
   { version:'4.39', date: nowISO(), type:'patch', summary:'Fixed a race condition that could leave History file ID permanently blank on a slow connection even while a fresh "last synced" time showed \u2014 the actual explanation for PC finding its ID under v4.38 while mobile still did not.',
     detail:'ensureHistoryCloudLoaded() had no protection against being called a second time while an earlier call was still in flight — only a historyLoaded flag blocked re-entry, and that only flips true at the very end of a successful run. v4.38\u2019s own fix made this far more likely to actually happen: retrying every ~20 seconds regardless of pending edits means that on a slow or weak connection, one call can easily outlast a single poll tick, letting the next tick start a second overlapping call before the first finishes. Two calls racing through the same lookup/create steps could each briefly reset the other\u2019s just-set file ID back to null while re-checking it, so whichever call finished last could leave historyFileId stuck null even though historyLoaded and the sync timestamp had already been set true/fresh by the other. Added historySyncing to the function\u2019s own entry guard so a second call can never start while one is already running, from any call site. Also added a safety check that refuses to mark a load "successful" if historyFileId ever ends up empty at that point, rather than silently accepting the contradiction.' },
   { version:'4.38', date: nowISO(), type:'patch', summary:'Fixed the real reason History file ID stayed blank even after v4.37\'s display fix: a device that made no local edits this session, and whose one attempt to load the History archive from Drive failed silently, had nothing ever retrying that load.',
@@ -1310,6 +1312,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.37'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.38'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.39'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.40'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1349,7 +1352,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.39', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.40', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -5216,25 +5219,33 @@ async function ensureHistoryCloudLoaded(){
       catch(e){ state.cloud.historyFileId = null; } // cached id no longer resolves — fall back to a name search below
     }
     if(!state.cloud.historyFileId){
-      const existing = await findMasterFileByName(CLOUD_HISTORY_FILE_NAME);
+      let existing;
+      try{ existing = await findMasterFileByName(CLOUD_HISTORY_FILE_NAME); }
+      catch(e){ throw new Error('name-search step failed: '+e.message); }
+      if(existing && !existing.id) throw new Error('name-search returned a file with no id: '+JSON.stringify(existing).slice(0,150));
       if(existing){ state.cloud.historyFileId = existing.id; fileMeta = existing; }
     }
     if(state.cloud.historyFileId){
-      const remote = await downloadMasterFile(state.cloud.historyFileId);
+      let remote;
+      try{ remote = await downloadMasterFile(state.cloud.historyFileId); }
+      catch(e){ throw new Error('download step failed for id '+state.cloud.historyFileId+': '+e.message); }
       await applyRemoteHistoryData(remote);
       state.cloud.lastHistoryRemoteModified = fileMeta ? fileMeta.modifiedTime : null;
     } else {
       const payload = buildHistoryPayload();
-      const created = await createNamedFile(CLOUD_HISTORY_FILE_NAME, payload);
+      let created;
+      try{ created = await createNamedFile(CLOUD_HISTORY_FILE_NAME, payload); }
+      catch(e){ throw new Error('create step failed: '+e.message); }
+      if(!created || !created.id) throw new Error('create step returned no id: '+JSON.stringify(created).slice(0,150));
       state.cloud.historyFileId = created.id;
       state.cloud.lastHistoryRemoteModified = created.modifiedTime;
     }
-    // v4.39 safety net: the historySyncing guard above should make this
-    // condition impossible, but if historyFileId is somehow still empty here,
-    // treat it as a failure rather than marking the load "successful" — this
-    // is the exact contradiction (loaded=true, ID blank) that caused the
+    // v4.39 safety net: the checks above should make this condition
+    // impossible, but if historyFileId is somehow still empty here, treat it
+    // as a failure rather than marking the load "successful" — this is the
+    // exact contradiction (loaded=true, ID blank) that caused the
     // "fresh sync time but no File ID" symptom.
-    if(!state.cloud.historyFileId) throw new Error('History file ID was not resolved.');
+    if(!state.cloud.historyFileId) throw new Error('History file ID was not resolved (all steps reported success, but no id ended up set — please report this exact message).');
     await saveCloudConfigToDB();
     state.cloud.historyLoaded = true;
     state.cloud.historySyncReady = true;
