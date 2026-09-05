@@ -1150,6 +1150,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.41', date: nowISO(), type:'patch', summary:'Found and fixed the actual root cause of History file ID staying blank: it only ever failed on a device finding an already-existing History file (created earlier by a different device) \u2014 which is exactly mobile\u2019s situation once PC had already created it.',
+    detail:'applyRemoteHistoryData() (called after successfully downloading an existing History file) calls loadAllData(), which calls loadCloudConfig(), which re-reads historyFileId FROM IndexedDB. The newly-resolved id was only ever saved to IndexedDB at the very end of the whole function \u2014 so on a device that had never saved a historyFileId before (its first time finding one that another device already created), that disk value was still null, and loadCloudConfig()\u2019s re-read clobbered the just-resolved in-memory id back to null moments before the final check. This is exactly why it looked like "all steps reported success, but no id ended up set": every step genuinely did succeed, right up until an unrelated later step silently reset the result. The device that instead *creates* the file (PC, in this case) never calls applyRemoteHistoryData, so it never hit this \u2014 explaining the split. The Active-file sync path elsewhere in this app already saves its id to IndexedDB before its own download+apply step for this exact reason; the History path added later simply hadn\u2019t matched that ordering. Reordered it to match. Also added a step-by-step breadcrumb trail to the error message as a permanent safety net, so any future failure at this point names exactly which internal step ran and what it returned instead of a bare generic message.' },
   { version:'4.40', date: nowISO(), type:'patch', summary:'Diagnostic only, no behavior change: the "not resolved" error introduced in v4.39 was too generic to say which Drive step actually failed on mobile — this version labels each step so the next attempt shows exactly where and why.',
     detail:'v4.39 correctly caught that historyFileId was ending up empty on mobile, but none of the four Drive calls involved (checking a cached id, searching by name, downloading, or creating) were throwing their own error — meaning something was failing at the response level rather than the network level, and the generic message could not say which step or why. Each step now wraps its own try/catch and reports its name if it throws, and the name-search/create steps additionally check that Drive\u2019s response actually included a file id and print the raw (truncated) response if not, rather than silently accepting an incomplete result. This should turn the next occurrence into an actionable error message instead of another guess.' },
   { version:'4.39', date: nowISO(), type:'patch', summary:'Fixed a race condition that could leave History file ID permanently blank on a slow connection even while a fresh "last synced" time showed \u2014 the actual explanation for PC finding its ID under v4.38 while mobile still did not.',
@@ -1313,6 +1315,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.38'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.39'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.40'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.41'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1352,7 +1355,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.40', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.41', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -5211,33 +5214,60 @@ async function ensureHistoryCloudLoaded(){
   // weak-signal mobile device where a single call is more likely to outlast
   // one 20s poll tick.
   if(!state.cloud.connected || state.cloud.historyLoaded || state.cloud.applyingRemote || state.cloud.historySyncing) return;
+  // v4.41: breadcrumb trail. Static analysis of v4.39/v4.40's logic says the
+  // final "not resolved" fallback below should be unreachable — every branch
+  // sets historyFileId to something truthy before falling through, or throws
+  // its own labeled error first. Since it kept firing anyway on mobile with
+  // none of those specific labels ever appearing, something about the actual
+  // runtime path isn't matching this reading of the code. Rather than guess
+  // again, record exactly which branch ran and what each step returned, and
+  // include that trail in the error itself.
+  const steps = [];
   try{
     state.cloud.historySyncing = true; renderCloudSidebar();
     let fileMeta = null;
     if(state.cloud.historyFileId){
-      try{ fileMeta = await getMasterFileMeta(state.cloud.historyFileId); }
-      catch(e){ state.cloud.historyFileId = null; } // cached id no longer resolves — fall back to a name search below
-    }
+      steps.push('had-cached:'+state.cloud.historyFileId);
+      try{ fileMeta = await getMasterFileMeta(state.cloud.historyFileId); steps.push('cached-ok'); }
+      catch(e){ state.cloud.historyFileId = null; steps.push('cached-failed:'+e.message); } // cached id no longer resolves — fall back to a name search below
+    } else { steps.push('no-cached-id'); }
     if(!state.cloud.historyFileId){
       let existing;
-      try{ existing = await findMasterFileByName(CLOUD_HISTORY_FILE_NAME); }
-      catch(e){ throw new Error('name-search step failed: '+e.message); }
-      if(existing && !existing.id) throw new Error('name-search returned a file with no id: '+JSON.stringify(existing).slice(0,150));
-      if(existing){ state.cloud.historyFileId = existing.id; fileMeta = existing; }
+      try{ existing = await findMasterFileByName(CLOUD_HISTORY_FILE_NAME); steps.push('search-ran'); }
+      catch(e){ steps.push('search-threw:'+e.message); throw new Error('name-search step failed: '+e.message); }
+      if(existing && !existing.id){ steps.push('search-found-no-id:'+JSON.stringify(existing).slice(0,80)); throw new Error('name-search returned a file with no id: '+JSON.stringify(existing).slice(0,150)); }
+      if(existing){ state.cloud.historyFileId = existing.id; fileMeta = existing; steps.push('search-found:'+existing.id); }
+      else steps.push('search-found-nothing');
     }
     if(state.cloud.historyFileId){
+      steps.push('taking-download-branch:id='+state.cloud.historyFileId);
+      // v4.41 real fix: persist the resolved id to IndexedDB *before*
+      // applyRemoteHistoryData runs. applyRemoteHistoryData calls
+      // loadAllData(), which calls loadCloudConfig(), which re-reads
+      // historyFileId FROM IndexedDB — if this device had never saved a
+      // historyFileId before (its first time finding an already-existing
+      // History file, e.g. one created by a different device), that disk
+      // value was still null/stale, and that re-read was clobbering the
+      // just-resolved in-memory id back to null moments before the final
+      // check below — exactly the "all steps reported success, but no id
+      // ended up set" contradiction. The create branch never called
+      // applyRemoteHistoryData, which is why it never hit this.
+      await saveCloudConfigToDB();
       let remote;
-      try{ remote = await downloadMasterFile(state.cloud.historyFileId); }
-      catch(e){ throw new Error('download step failed for id '+state.cloud.historyFileId+': '+e.message); }
+      try{ remote = await downloadMasterFile(state.cloud.historyFileId); steps.push('download-ok'); }
+      catch(e){ steps.push('download-threw:'+e.message); throw new Error('download step failed for id '+state.cloud.historyFileId+': '+e.message); }
       await applyRemoteHistoryData(remote);
+      steps.push('applied-remote:id-after='+state.cloud.historyFileId);
       state.cloud.lastHistoryRemoteModified = fileMeta ? fileMeta.modifiedTime : null;
     } else {
+      steps.push('taking-create-branch');
       const payload = buildHistoryPayload();
       let created;
-      try{ created = await createNamedFile(CLOUD_HISTORY_FILE_NAME, payload); }
-      catch(e){ throw new Error('create step failed: '+e.message); }
-      if(!created || !created.id) throw new Error('create step returned no id: '+JSON.stringify(created).slice(0,150));
+      try{ created = await createNamedFile(CLOUD_HISTORY_FILE_NAME, payload); steps.push('create-ran'); }
+      catch(e){ steps.push('create-threw:'+e.message); throw new Error('create step failed: '+e.message); }
+      if(!created || !created.id){ steps.push('create-no-id:'+JSON.stringify(created).slice(0,80)); throw new Error('create step returned no id: '+JSON.stringify(created).slice(0,150)); }
       state.cloud.historyFileId = created.id;
+      steps.push('create-got-id:'+created.id);
       state.cloud.lastHistoryRemoteModified = created.modifiedTime;
     }
     // v4.39 safety net: the checks above should make this condition
@@ -5245,7 +5275,7 @@ async function ensureHistoryCloudLoaded(){
     // as a failure rather than marking the load "successful" — this is the
     // exact contradiction (loaded=true, ID blank) that caused the
     // "fresh sync time but no File ID" symptom.
-    if(!state.cloud.historyFileId) throw new Error('History file ID was not resolved (all steps reported success, but no id ended up set — please report this exact message).');
+    if(!state.cloud.historyFileId) throw new Error('History file ID was not resolved. Trail: '+steps.join(' > '));
     await saveCloudConfigToDB();
     state.cloud.historyLoaded = true;
     state.cloud.historySyncReady = true;
