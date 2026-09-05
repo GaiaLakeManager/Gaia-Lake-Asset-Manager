@@ -1019,7 +1019,7 @@ const state = {
     syncing:false, applyingRemote:false, lastSync:null, lastRemoteModified:null,
     dirty:false, syncReady:false,                  // syncReady only flips true once the initial post-login pull has landed — blocks any push before that
     needsReconnect:false,                          // true when a background token refresh fails — surfaced via the banner/sidebar instead of silently going dark (see ensureFreshAccessToken)
-    historyLoaded:false, historySyncing:false, historySyncReady:false, historyDirty:false,
+    historyLoaded:false, historySyncing:false, historySyncReady:false, historyDirty:false, lastHistoryPushError:null,
     lastHistorySync:null, lastHistoryRemoteModified:null,
   },
 };
@@ -1150,6 +1150,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.34', date: nowISO(), type:'patch', summary:'Added visibility into why the History archive might not be reaching Google Drive: a persistent error line on Settings (next to "History archive last synced…") now shows the actual reason if a History sync fails, instead of only a toast message that is easy to miss on a background sync nobody is watching happen.',
+    detail:'After v4.33\'s fix, a report came in that the History file\'s "Date modified" on Drive still was not updating at all — not just showing a stale date, but genuinely receiving zero successful writes since a much earlier date, even though the live asset file and Dashboard were updating correctly. That is a different symptom than v4.32/v4.33 addressed, and nothing in the app surfaced why a History sync attempt might be failing outright — only a transient toast that disappears, easy to miss on an automatic background push nobody is actively watching. This version does not change the sync logic itself; it adds a persistent "Last history sync error" line to Settings (matching the one the asset file has always had) so the real underlying error, if any, is visible and can be diagnosed from there instead of guessed at blindly.' },
   { version:'4.33', date: nowISO(), type:'patch', summary:'Fixed two follow-on issues from v4.32: (1) existing installs kept showing the old version number in the sidebar/footer after an update because a step needed to carry the new version forward to devices that already had data was missed, and (2) multiple devices editing around the same time could each silently overwrite each other\'s History log entries on Drive, so different devices showed different History lists and a recent update could vanish from everyone\'s view but the device that made it.',
     detail:'Version display: every version bump adds its changelog entry to a code-defined list, but an existing install\'s local database keeps its own stored version number and only picks up newly-added entries through a separate migration list that has to be updated by hand alongside it — v4.32 shipped without that step, so any device that already had the app installed kept showing v4.31 even after loading the new file. Added the missing entry so already-installed devices now pick up the version correctly, and will going forward. History overwrite: pushing a History update to Drive used to just send this device\'s own local copy straight over, with no check for what else might already be sitting on Drive — unlike pushing an asset update, which has always pulled Drive\'s current copy and merged first specifically to prevent this. Two or three devices adding History entries around the same time could each push their own copy back to back, and since History is an append-only log rather than a single record, whichever device pushed last would wipe out anything added by the others since it was last pulled — even though the underlying asset data itself was never at risk, since that always used the safer merge approach. History push now pulls and merges with Drive first as well, the same way asset syncing already does, so no device\'s entries can overwrite another\'s.' },
   { version:'4.32', date: nowISO(), type:'patch', summary:'Fixed a bug where a History log entry for an edit could get stuck on the device that made it and never actually reach Google Drive, even though the edited item itself synced fine — other devices then kept showing an old History archive date and were missing the newer entry entirely.',
@@ -1292,6 +1294,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.31'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.32'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.33'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.34'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1331,7 +1334,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.33', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.34', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -3391,7 +3394,7 @@ function renderSettingsView(){
           <button id="s-whatsnew" class="text-xs px-3 py-1.5 rounded-lg theme-bg text-white font-medium">Download WhatsNew.txt</button>
         </div>
       </div>
-      <p id="cloud-last-history-sync-text" class="text-[11px] text-[#a89f85]">${state.cloud.connected ? (state.cloud.historyLoaded ? (state.cloud.lastHistorySync ? 'History archive last synced ' + fmtDateTime(new Date(state.cloud.lastHistorySync)) : 'History archive connected — waiting for first sync.') : 'History archive loads the first time you open History or this page.') : 'Sign in to Google Drive to sync the history archive (gaia_Asset_history_archive.json).'}${state.cloud.historyDirty ? ' · Changes pending push…' : ''}</p>
+      <p id="cloud-last-history-sync-text" class="text-[11px] text-[#a89f85]">${historySyncStatusText()}</p>
       <div class="max-h-72 overflow-y-auto scroll-thin">${changelogHtml}</div>
     </section>
   </div>`;
@@ -4628,6 +4631,21 @@ function setCloudStatus(kind, text){
    is updating but the timestamp isn't" even when sync was working the whole
    time. Both lines now patch their own DOM node directly, so they read live
    whether or not the page happens to be showing at that instant. */
+/* v4.34: shared by the Settings page's initial render and the live-patch
+   function below so the two copies of this text can never drift apart —
+   also now surfaces lastHistoryPushError persistently (mirroring the
+   asset file's "Last push error" line) instead of only a toast that's
+   easy to miss on a background push nobody is watching happen. */
+function historySyncStatusText(){
+  const base = state.cloud.connected
+    ? (state.cloud.historyLoaded
+        ? (state.cloud.lastHistorySync ? 'History archive last synced ' + fmtDateTime(new Date(state.cloud.lastHistorySync)) : 'History archive connected — waiting for first sync.')
+        : 'History archive not yet loaded on this device this session.')
+    : 'Sign in to Google Drive to sync the history archive (gaia_Asset_history_archive.json).';
+  const dirty = state.cloud.historyDirty ? ' · Changes pending push…' : '';
+  const err = state.cloud.lastHistoryPushError ? ` · <span class="text-red-500">Last history sync error: ${escapeHtml(state.cloud.lastHistoryPushError)}</span>` : '';
+  return base + dirty + err;
+}
 function updateCloudTimestampsUI(){
   const activeEl = document.getElementById('cloud-last-sync-text');
   if(activeEl){
@@ -4635,7 +4653,7 @@ function updateCloudTimestampsUI(){
   }
   const historyEl = document.getElementById('cloud-last-history-sync-text');
   if(historyEl){
-    historyEl.innerHTML = `${state.cloud.connected ? (state.cloud.historyLoaded ? (state.cloud.lastHistorySync ? 'History archive last synced ' + fmtDateTime(new Date(state.cloud.lastHistorySync)) : 'History archive connected — waiting for first sync.') : 'History archive loads the first time you open History or this page.') : 'Sign in to Google Drive to sync the history archive (gaia_Asset_history_archive.json).'}${state.cloud.historyDirty ? ' · Changes pending push…' : ''}`;
+    historyEl.innerHTML = historySyncStatusText();
   }
 }
 
@@ -5184,9 +5202,12 @@ async function ensureHistoryCloudLoaded(){
     state.cloud.historyLoaded = true;
     state.cloud.historySyncReady = true;
     state.cloud.lastHistorySync = nowISO();
+    state.cloud.lastHistoryPushError = null;
     updateCloudTimestampsUI();
     if(state.cloud.historyDirty) await pushHistoryToCloud();
   }catch(err){
+    state.cloud.lastHistoryPushError = err.message;
+    updateCloudTimestampsUI();
     showToast('Could not load the history archive from Google Drive: '+err.message,'error');
   } finally {
     state.cloud.historySyncing = false; renderCloudSidebar();
@@ -5225,8 +5246,10 @@ async function pushHistoryToCloud(){
     state.cloud.lastHistoryRemoteModified = updated.modifiedTime;
     state.cloud.lastHistorySync = nowISO();
     state.cloud.historyDirty = false;
+    state.cloud.lastHistoryPushError = null;
     if(state.cloud.needsReconnect){ state.cloud.needsReconnect = false; updateCloudBanner(); }
   }catch(err){
+    state.cloud.lastHistoryPushError = err.message;
     if(String(err.message||'').includes('Drive API 401')){ state.cloud.needsReconnect = true; updateCloudBanner(); }
     showToast('History archive sync failed: '+err.message,'error');
   } finally {
