@@ -1150,6 +1150,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.33', date: nowISO(), type:'patch', summary:'Fixed two follow-on issues from v4.32: (1) existing installs kept showing the old version number in the sidebar/footer after an update because a step needed to carry the new version forward to devices that already had data was missed, and (2) multiple devices editing around the same time could each silently overwrite each other\'s History log entries on Drive, so different devices showed different History lists and a recent update could vanish from everyone\'s view but the device that made it.',
+    detail:'Version display: every version bump adds its changelog entry to a code-defined list, but an existing install\'s local database keeps its own stored version number and only picks up newly-added entries through a separate migration list that has to be updated by hand alongside it — v4.32 shipped without that step, so any device that already had the app installed kept showing v4.31 even after loading the new file. Added the missing entry so already-installed devices now pick up the version correctly, and will going forward. History overwrite: pushing a History update to Drive used to just send this device\'s own local copy straight over, with no check for what else might already be sitting on Drive — unlike pushing an asset update, which has always pulled Drive\'s current copy and merged first specifically to prevent this. Two or three devices adding History entries around the same time could each push their own copy back to back, and since History is an append-only log rather than a single record, whichever device pushed last would wipe out anything added by the others since it was last pulled — even though the underlying asset data itself was never at risk, since that always used the safer merge approach. History push now pulls and merges with Drive first as well, the same way asset syncing already does, so no device\'s entries can overwrite another\'s.' },
   { version:'4.32', date: nowISO(), type:'patch', summary:'Fixed a bug where a History log entry for an edit could get stuck on the device that made it and never actually reach Google Drive, even though the edited item itself synced fine — other devices then kept showing an old History archive date and were missing the newer entry entirely.',
     detail:'Root cause: the shared History/changelog file only ever gets pulled from Drive the first time a device opens the History or Settings page in a session (to avoid loading it on every single screen). But pushing a new History entry back up to Drive was also gated behind that same "has this device opened History/Settings yet" flag — and even the 20-second background watchdog that retries other stuck syncs explicitly skipped a stuck History push for the same reason. So an edit made from the Dashboard, a location roster, or the Edit form — without ever visiting History or Settings afterward on that device — correctly updated and synced the live asset record (which is why the Dashboard\'s Last Updated Asset card looked right), but its matching History line sat queued locally, invisible to Drive and every other device, indefinitely. Fixed by having a History-writing edit pull (or create) the shared archive itself the moment it is needed, instead of waiting for a human to happen to open History or Settings first; the background watchdog now also retries that pull if it failed once (e.g. a brief offline moment), instead of only ever retrying the push half of it. No visible UI change — this only affects how reliably History reaches Drive in the background.' },
   { version:'4.31', date: nowISO(), type:'minor', summary:'History page now has Date/Action/Condition filters. Deleting an asset is now Administrator-only everywhere in the app — a Standard Manager account pressing Delete now files a request (with a required reason) for the Administrator to approve or decline from Settings, instead of deleting anything directly.',
@@ -1288,6 +1290,8 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.29'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.30'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.31'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.32'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.33'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1327,7 +1331,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.32', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.33', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -5194,6 +5198,28 @@ async function pushHistoryToCloud(){
   if(!tokenOk){ console.log('[cloud] pushHistoryToCloud aborted — token refresh failed, will retry once reconnected.'); return; }
   try{
     state.cloud.historySyncing = true; renderCloudSidebar();
+    // Fixed in v4.33: this used to push straight from local state.history
+    // with no merge step, unlike pushToCloud (assets), which always pulls
+    // and reconciles with Drive first. History is an append-only log built
+    // from multiple devices, so a plain overwrite here meant whichever
+    // device's push landed last on Drive silently erased every entry another
+    // device had added since this device's own last pull — explaining why
+    // 3 devices could each show a different History list. Now mirrors the
+    // asset push: pull Drive's current copy, union-merge by id (existing
+    // mergeHistoryEntries/mergeChangelogEntries), and push the merged result.
+    let remote = null;
+    try{ remote = await downloadMasterFile(state.cloud.historyFileId); }
+    catch(e){ console.log('[cloud] pre-push history remote fetch failed, pushing local state only:', e.message); }
+    if(remote){
+      state.history = mergeHistoryEntries(state.history, remote.history);
+      state.meta.changelog = mergeChangelogEntries(state.meta.changelog, remote.changelog);
+      // Raw variants — this merge runs as part of a push, so its own
+      // clear-and-rewrite must never itself schedule another push (same
+      // lesson as v4.28's continuous-sync bug on the asset side).
+      await idbClearRaw('history');
+      for(const h of state.history) await idbPutRaw('history', h);
+      await idbPutRaw('meta', { key:'version', version: state.meta.version, changelog: state.meta.changelog });
+    }
     const payload = buildHistoryPayload();
     const updated = await updateMasterFile(state.cloud.historyFileId, payload);
     state.cloud.lastHistoryRemoteModified = updated.modifiedTime;
@@ -5309,7 +5335,7 @@ async function createFileInFolder(name, payload, folderId){
    — so a given period only ever has one Drive object, however many devices
    happen to check in around the same time. */
 async function findOrDedupeFileInFolder(name, folderId){
-  const q = encodeURIComponent(`name='${name.replace(/'/g,"\\'")}' and '${folderId}' in parents and trashed=false`);
+  const q = encodeURIComponent(`name='${name.replace(/'/g,"\'")}' and '${folderId}' in parents and trashed=false`);
   const data = await driveFetchJson(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,modifiedTime)&orderBy=modifiedTime desc&spaces=drive`);
   const files = data.files || [];
   if(!files.length) return null;
@@ -5357,7 +5383,7 @@ async function runAutoBackup(period, filename){
   await idbPutRaw('meta', rec);
 }
 async function backupFileExists(filename, folderId){
-  const q = encodeURIComponent(`name='${filename.replace(/'/g,"\\'")}' and '${folderId}' in parents and trashed=false`);
+  const q = encodeURIComponent(`name='${filename.replace(/'/g,"\'")}' and '${folderId}' in parents and trashed=false`);
   const data = await driveFetchJson(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&spaces=drive`);
   return !!(data.files && data.files.length);
 }
