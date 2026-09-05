@@ -1150,6 +1150,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.32', date: nowISO(), type:'patch', summary:'Fixed a bug where a History log entry for an edit could get stuck on the device that made it and never actually reach Google Drive, even though the edited item itself synced fine — other devices then kept showing an old History archive date and were missing the newer entry entirely.',
+    detail:'Root cause: the shared History/changelog file only ever gets pulled from Drive the first time a device opens the History or Settings page in a session (to avoid loading it on every single screen). But pushing a new History entry back up to Drive was also gated behind that same "has this device opened History/Settings yet" flag — and even the 20-second background watchdog that retries other stuck syncs explicitly skipped a stuck History push for the same reason. So an edit made from the Dashboard, a location roster, or the Edit form — without ever visiting History or Settings afterward on that device — correctly updated and synced the live asset record (which is why the Dashboard\'s Last Updated Asset card looked right), but its matching History line sat queued locally, invisible to Drive and every other device, indefinitely. Fixed by having a History-writing edit pull (or create) the shared archive itself the moment it is needed, instead of waiting for a human to happen to open History or Settings first; the background watchdog now also retries that pull if it failed once (e.g. a brief offline moment), instead of only ever retrying the push half of it. No visible UI change — this only affects how reliably History reaches Drive in the background.' },
   { version:'4.31', date: nowISO(), type:'minor', summary:'History page now has Date/Action/Condition filters. Deleting an asset is now Administrator-only everywhere in the app — a Standard Manager account pressing Delete now files a request (with a required reason) for the Administrator to approve or decline from Settings, instead of deleting anything directly.',
     detail:'History: added Action, Condition and From/To Date filters alongside the existing search and sort, with a live result count and a one-click Clear. Viewing/editing an asset from a History row (the eye icon, which actually opens the full Edit form) and deleting a History record are now Administrator-only actions — Print and PDF export stay available to everyone since those are read-only reporting, not edit access. Deletion requests: every place an asset could be deleted (the Edit form Delete button, Location roster Delete Selected, and deleting a single condition-split entry) now checks the signed-in account. The Administrator account keeps deleting directly, exactly as before. Any other signed-in account gets asked for a reason instead, and that becomes a pending request — Asset Number, Name, Location, Category, Qty, Condition and Reason — that syncs to Drive like everything else, so it reaches the Administrator from whichever device they next check. A new Deletion Requests section in Settings (Administrator only) lists pending requests with Approve (performs the deletion) and Decline (dismisses it) buttons, plus a short history of recently resolved ones, and the Dashboard shows a clear banner the moment a request is waiting. Each request also has a one-click email link pre-filled with its details — true automatic email sending would need a third-party email service wired in, which is not currently part of this app, so this is a manual send rather than a background one for now.' },
   { version:'4.30', date: nowISO(), type:'patch', summary:'Removed the built-in demo/sample-data seeder entirely.',
@@ -1325,7 +1327,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.31', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.32', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -5078,11 +5080,22 @@ function scheduleActiveCloudPush(){
   cloudPushTimer = setTimeout(()=>{ pushToCloud(); }, 500);
 }
 function scheduleHistoryCloudPush(){
-  if(!state.cloud.connected || !state.cloud.historyLoaded || !state.cloud.historyFileId || state.cloud.applyingRemote || !state.cloud.historySyncReady){
-    state.cloud.historyDirty = true;
-    console.log('[cloud] history push deferred — connected:'+state.cloud.connected+' historyLoaded:'+state.cloud.historyLoaded+' historyFileId:'+!!state.cloud.historyFileId+' applyingRemote:'+state.cloud.applyingRemote+' historySyncReady:'+state.cloud.historySyncReady);
+  state.cloud.historyDirty = true;
+  if(!state.cloud.connected || state.cloud.applyingRemote){
+    console.log('[cloud] history push deferred — connected:'+state.cloud.connected+' applyingRemote:'+state.cloud.applyingRemote);
     return;
   }
+  if(!state.cloud.historyLoaded){
+    // Fixed in v4.32: this used to just sit here forever waiting for a human
+    // to open History/Settings on this device before the archive would ever
+    // be pulled+pushed — an edit made in a session that never visited those
+    // pages could stay stuck local-only indefinitely, even across the 20s
+    // watchdog, since that check also required historyLoaded to be true.
+    // Now a History-writing edit triggers the pull/create+flush itself.
+    if(!state.cloud.historySyncing) ensureHistoryCloudLoaded();
+    return;
+  }
+  if(!state.cloud.historyFileId || !state.cloud.historySyncReady) return;
   clearTimeout(historyPushTimer);
   historyPushTimer = setTimeout(()=>{ pushHistoryToCloud(); }, 500);
 }
@@ -5228,8 +5241,16 @@ async function pollCloud(){
   // every poll tick so an edit can never get silently stuck un-synced.
   try{
     if(state.cloud.dirty && state.cloud.syncReady && !state.cloud.applyingRemote) await pushToCloud();
-    if(state.cloud.historyLoaded && state.cloud.historyDirty && state.cloud.historySyncReady && !state.cloud.applyingRemote) await pushHistoryToCloud();
-  }catch(err){ /* pushToCloud/pushHistoryToCloud already surface their own errors */ }
+    if(state.cloud.historyDirty && !state.cloud.applyingRemote){
+      if(state.cloud.historyLoaded && state.cloud.historySyncReady) await pushHistoryToCloud();
+      // Fixed in v4.32: previously this watchdog only ever retried a stuck
+      // History push, never a stuck History *load* — so if the initial
+      // pull/create attempt (see scheduleHistoryCloudPush) failed, e.g. a
+      // brief offline moment right after the edit, historyLoaded stayed
+      // false forever and nothing here would try again. Now it does.
+      else if(!state.cloud.historyLoaded && !state.cloud.historySyncing) await ensureHistoryCloudLoaded();
+    }
+  }catch(err){ /* pushToCloud/pushHistoryToCloud/ensureHistoryCloudLoaded already surface their own errors */ }
   try{ await checkWeeklyMonthlyBackups(); }catch(err){ console.error('[backup] auto-backup check failed:', err); }
 }
 /* ---------------------------------------------------------------------------
