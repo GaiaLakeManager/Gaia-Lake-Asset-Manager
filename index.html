@@ -1150,6 +1150,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.37', date: nowISO(), type:'patch', summary:'Fixed the v4.36 diagnostic itself: the file-ID comparison line on Settings was frozen blank for History file ID on every device, because it was never wired up to refresh once the History file\'s ID actually became known.',
+    detail:'Screenshots from three devices confirmed the Active file ID matched everywhere, but History file ID showed as "—" on all three with no exception — not a real result, since the app could not have been syncing History at all if that were genuinely empty. The diagnostic line printed once, at the moment Settings first rendered, and was never touched again — unlike the "History archive last synced" line right above it, which already had an id and was being refreshed by the same background routine that keeps timestamps current. The actual History file ID is only discovered a moment later, asynchronously, after the initial render — so the diagnostic line was always showing its very first (empty) value no matter how long the device had been running. Given the same id and hooked into that existing refresh routine, so it now updates the moment the File ID is known, the same way the line above it does.' },
   { version:'4.36', date: nowISO(), type:'patch', summary:'Diagnostic only, no behavior change: Settings now shows the actual Google Drive file IDs this device is syncing to, so it can be checked whether all devices are really pointed at the same History file.',
     detail:'v4.35 added a periodic check for History changes on Drive, mirroring the one the asset file already has, and it should have made a passively-viewing device pick up another device\'s update within about 20 seconds. It did not, which points to something more fundamental than a missing check: most likely, Google Drive silently allows more than one file with the same name in the same folder, and if that has already happened here (e.g. from an early moment when two devices both looked for the History file at nearly the same time and neither found one yet, so both created their own), different devices could each be correctly, successfully syncing — just to two different Drive objects that happen to share a name, which would explain every symptom seen so far: no errors, real "last synced" timestamps, and yet permanent divergence. Rather than guess again, this version just prints the exact file ID each device is using for the shared inventory file and for the History file, in Settings, so that can be compared directly across devices to confirm or rule this out before deciding on a fix.' },
   { version:'4.35', date: nowISO(), type:'patch', summary:'History now stays in sync on devices that are not the one making the edit. It previously only ever pulled from Drive once per session, so a device that was just viewing History (not editing) could sit indefinitely on whatever it loaded early in the session while other devices kept adding entries.',
@@ -1301,6 +1303,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.34'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.35'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.36'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.37'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1340,7 +1343,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.36', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.37', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -3401,7 +3404,7 @@ function renderSettingsView(){
         </div>
       </div>
       <p id="cloud-last-history-sync-text" class="text-[11px] text-[#a89f85]">${historySyncStatusText()}</p>
-      <p class="text-[10px] font-mono text-[#a89f85] opacity-70 break-all">v4.36 diagnostic — compare this line across all devices: Active file ID ${escapeHtml(state.cloud.fileId||'—')} · History file ID ${escapeHtml(state.cloud.historyFileId||'—')}</p>
+      <p id="cloud-fileid-diag-text" class="text-[10px] font-mono text-[#a89f85] opacity-70 break-all">v4.37 diagnostic — compare this line across all devices: Active file ID ${escapeHtml(state.cloud.fileId||'—')} · History file ID ${escapeHtml(state.cloud.historyFileId||'—')}</p>
       <div class="max-h-72 overflow-y-auto scroll-thin">${changelogHtml}</div>
     </section>
   </div>`;
@@ -4661,6 +4664,10 @@ function updateCloudTimestampsUI(){
   const historyEl = document.getElementById('cloud-last-history-sync-text');
   if(historyEl){
     historyEl.innerHTML = historySyncStatusText();
+  }
+  const fileIdDiagEl = document.getElementById('cloud-fileid-diag-text');
+  if(fileIdDiagEl){
+    fileIdDiagEl.innerHTML = `v4.37 diagnostic — compare this line across all devices: Active file ID ${escapeHtml(state.cloud.fileId||'—')} · History file ID ${escapeHtml(state.cloud.historyFileId||'—')}`;
   }
 }
 
