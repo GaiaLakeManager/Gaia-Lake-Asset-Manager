@@ -1150,6 +1150,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.39', date: nowISO(), type:'patch', summary:'Fixed a race condition that could leave History file ID permanently blank on a slow connection even while a fresh "last synced" time showed \u2014 the actual explanation for PC finding its ID under v4.38 while mobile still did not.',
+    detail:'ensureHistoryCloudLoaded() had no protection against being called a second time while an earlier call was still in flight — only a historyLoaded flag blocked re-entry, and that only flips true at the very end of a successful run. v4.38\u2019s own fix made this far more likely to actually happen: retrying every ~20 seconds regardless of pending edits means that on a slow or weak connection, one call can easily outlast a single poll tick, letting the next tick start a second overlapping call before the first finishes. Two calls racing through the same lookup/create steps could each briefly reset the other\u2019s just-set file ID back to null while re-checking it, so whichever call finished last could leave historyFileId stuck null even though historyLoaded and the sync timestamp had already been set true/fresh by the other. Added historySyncing to the function\u2019s own entry guard so a second call can never start while one is already running, from any call site. Also added a safety check that refuses to mark a load "successful" if historyFileId ever ends up empty at that point, rather than silently accepting the contradiction.' },
   { version:'4.38', date: nowISO(), type:'patch', summary:'Fixed the real reason History file ID stayed blank even after v4.37\'s display fix: a device that made no local edits this session, and whose one attempt to load the History archive from Drive failed silently, had nothing ever retrying that load.',
     detail:'v4.37 fixed the diagnostic line itself, but on redeploy it stayed blank on every device — pointing to state.cloud.historyFileId genuinely never getting set, not just a display freeze. Tracing it: History is only loaded from Drive once per device per session, triggered by opening History or Settings. If that one attempt failed (e.g. a transient Drive API error), historyLoaded stayed false — and the only retry logic added back in v4.32 only ran inside a check for a pending local History edit (historyDirty), so a device that was just viewing pages without adding/editing/deleting anything this session had no local edit to trigger that retry, and the failed load was never attempted again for the rest of the session. Moved the retry so it now runs on every ~20-second poll tick whenever a device is connected and has not yet loaded History, independent of whether anything is waiting to be pushed. Also stopped the retry from re-showing its error toast on every tick if the same failure keeps recurring — only toasts the first time a given error appears, since the persistent error line already added in v4.34 keeps it visible without repeat interruptions.' },
   { version:'4.37', date: nowISO(), type:'patch', summary:'Fixed the v4.36 diagnostic itself: the file-ID comparison line on Settings was frozen blank for History file ID on every device, because it was never wired up to refresh once the History file\'s ID actually became known.',
@@ -1307,6 +1309,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.36'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.37'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.38'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.39'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1346,7 +1349,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.38', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.39', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -5193,7 +5196,18 @@ async function pushToCloud(){
 }
 /* ---- History archive: lazy connect, only when History/Settings is opened - */
 async function ensureHistoryCloudLoaded(){
-  if(!state.cloud.connected || state.cloud.historyLoaded || state.cloud.applyingRemote) return;
+  // v4.39: historySyncing added to this guard. Without it, two overlapping
+  // calls could race — e.g. the v4.38 poll-tick retry firing again before a
+  // slow-connection call finishes, or rapid nav clicks re-triggering the
+  // navigateTo() call site below (which only ever checked historyLoaded,
+  // itself only set true at the very end). Two calls racing through the same
+  // find/create steps could each briefly null out the id the other had just
+  // set, leaving historyFileId stuck null even though historyLoaded and
+  // lastHistorySync got set true/fresh by whichever call finished first —
+  // exactly the "recent sync time, blank File ID" combination seen on a
+  // weak-signal mobile device where a single call is more likely to outlast
+  // one 20s poll tick.
+  if(!state.cloud.connected || state.cloud.historyLoaded || state.cloud.applyingRemote || state.cloud.historySyncing) return;
   try{
     state.cloud.historySyncing = true; renderCloudSidebar();
     let fileMeta = null;
@@ -5215,6 +5229,12 @@ async function ensureHistoryCloudLoaded(){
       state.cloud.historyFileId = created.id;
       state.cloud.lastHistoryRemoteModified = created.modifiedTime;
     }
+    // v4.39 safety net: the historySyncing guard above should make this
+    // condition impossible, but if historyFileId is somehow still empty here,
+    // treat it as a failure rather than marking the load "successful" — this
+    // is the exact contradiction (loaded=true, ID blank) that caused the
+    // "fresh sync time but no File ID" symptom.
+    if(!state.cloud.historyFileId) throw new Error('History file ID was not resolved.');
     await saveCloudConfigToDB();
     state.cloud.historyLoaded = true;
     state.cloud.historySyncReady = true;
