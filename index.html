@@ -1150,6 +1150,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.38', date: nowISO(), type:'patch', summary:'Fixed the real reason History file ID stayed blank even after v4.37\'s display fix: a device that made no local edits this session, and whose one attempt to load the History archive from Drive failed silently, had nothing ever retrying that load.',
+    detail:'v4.37 fixed the diagnostic line itself, but on redeploy it stayed blank on every device — pointing to state.cloud.historyFileId genuinely never getting set, not just a display freeze. Tracing it: History is only loaded from Drive once per device per session, triggered by opening History or Settings. If that one attempt failed (e.g. a transient Drive API error), historyLoaded stayed false — and the only retry logic added back in v4.32 only ran inside a check for a pending local History edit (historyDirty), so a device that was just viewing pages without adding/editing/deleting anything this session had no local edit to trigger that retry, and the failed load was never attempted again for the rest of the session. Moved the retry so it now runs on every ~20-second poll tick whenever a device is connected and has not yet loaded History, independent of whether anything is waiting to be pushed. Also stopped the retry from re-showing its error toast on every tick if the same failure keeps recurring — only toasts the first time a given error appears, since the persistent error line already added in v4.34 keeps it visible without repeat interruptions.' },
   { version:'4.37', date: nowISO(), type:'patch', summary:'Fixed the v4.36 diagnostic itself: the file-ID comparison line on Settings was frozen blank for History file ID on every device, because it was never wired up to refresh once the History file\'s ID actually became known.',
     detail:'Screenshots from three devices confirmed the Active file ID matched everywhere, but History file ID showed as "—" on all three with no exception — not a real result, since the app could not have been syncing History at all if that were genuinely empty. The diagnostic line printed once, at the moment Settings first rendered, and was never touched again — unlike the "History archive last synced" line right above it, which already had an id and was being refreshed by the same background routine that keeps timestamps current. The actual History file ID is only discovered a moment later, asynchronously, after the initial render — so the diagnostic line was always showing its very first (empty) value no matter how long the device had been running. Given the same id and hooked into that existing refresh routine, so it now updates the moment the File ID is known, the same way the line above it does.' },
   { version:'4.36', date: nowISO(), type:'patch', summary:'Diagnostic only, no behavior change: Settings now shows the actual Google Drive file IDs this device is syncing to, so it can be checked whether all devices are really pointed at the same History file.',
@@ -1304,6 +1306,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.35'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.36'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.37'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.38'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1343,7 +1346,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.37', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.38', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -5220,9 +5223,15 @@ async function ensureHistoryCloudLoaded(){
     updateCloudTimestampsUI();
     if(state.cloud.historyDirty) await pushHistoryToCloud();
   }catch(err){
+    const isNewError = state.cloud.lastHistoryPushError !== err.message;
     state.cloud.lastHistoryPushError = err.message;
     updateCloudTimestampsUI();
-    showToast('Could not load the history archive from Google Drive: '+err.message,'error');
+    // v4.38: the load now retries every ~20s poll tick regardless of a
+    // pending edit (see pollCloud), so a persistent failure would otherwise
+    // re-toast every tick — only surface it the first time this exact error
+    // appears, the persistent "Last history sync error" line in Settings
+    // already covers ongoing visibility without repeat interruptions.
+    if(isNewError) showToast('Could not load the history archive from Google Drive: '+err.message,'error');
   } finally {
     state.cloud.historySyncing = false; renderCloudSidebar();
   }
@@ -5328,14 +5337,21 @@ async function pollCloud(){
   // every poll tick so an edit can never get silently stuck un-synced.
   try{
     if(state.cloud.dirty && state.cloud.syncReady && !state.cloud.applyingRemote) await pushToCloud();
-    if(state.cloud.historyDirty && !state.cloud.applyingRemote){
-      if(state.cloud.historyLoaded && state.cloud.historySyncReady) await pushHistoryToCloud();
-      // Fixed in v4.32: previously this watchdog only ever retried a stuck
-      // History push, never a stuck History *load* — so if the initial
-      // pull/create attempt (see scheduleHistoryCloudPush) failed, e.g. a
-      // brief offline moment right after the edit, historyLoaded stayed
-      // false forever and nothing here would try again. Now it does.
-      else if(!state.cloud.historyLoaded && !state.cloud.historySyncing) await ensureHistoryCloudLoaded();
+    if(state.cloud.historyDirty && state.cloud.historyLoaded && state.cloud.historySyncReady && !state.cloud.applyingRemote){
+      await pushHistoryToCloud();
+    }
+    // Fixed in v4.32: previously this watchdog only ever retried a stuck
+    // History push, never a stuck History *load*. v4.32-4.37 still only ran
+    // that retry when historyDirty was true (a pending local edit) — so a
+    // device that made NO edits this session, but whose initial
+    // ensureHistoryCloudLoaded() call (from opening History/Settings) failed
+    // silently (e.g. a transient Drive API error), had historyLoaded stuck
+    // false forever with nothing ever retrying it, since historyDirty never
+    // became true to trigger the retry branch. v4.38: retries unconditionally
+    // on every poll tick whenever connected and not yet loaded, regardless of
+    // whether there is a pending edit waiting.
+    if(!state.cloud.historyLoaded && !state.cloud.historySyncing && !state.cloud.applyingRemote){
+      await ensureHistoryCloudLoaded();
     }
   }catch(err){ /* pushToCloud/pushHistoryToCloud/ensureHistoryCloudLoaded already surface their own errors */ }
   try{ await checkWeeklyMonthlyBackups(); }catch(err){ console.error('[backup] auto-backup check failed:', err); }
