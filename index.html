@@ -1150,6 +1150,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.36', date: nowISO(), type:'patch', summary:'Diagnostic only, no behavior change: Settings now shows the actual Google Drive file IDs this device is syncing to, so it can be checked whether all devices are really pointed at the same History file.',
+    detail:'v4.35 added a periodic check for History changes on Drive, mirroring the one the asset file already has, and it should have made a passively-viewing device pick up another device\'s update within about 20 seconds. It did not, which points to something more fundamental than a missing check: most likely, Google Drive silently allows more than one file with the same name in the same folder, and if that has already happened here (e.g. from an early moment when two devices both looked for the History file at nearly the same time and neither found one yet, so both created their own), different devices could each be correctly, successfully syncing — just to two different Drive objects that happen to share a name, which would explain every symptom seen so far: no errors, real "last synced" timestamps, and yet permanent divergence. Rather than guess again, this version just prints the exact file ID each device is using for the shared inventory file and for the History file, in Settings, so that can be compared directly across devices to confirm or rule this out before deciding on a fix.' },
   { version:'4.35', date: nowISO(), type:'patch', summary:'History now stays in sync on devices that are not the one making the edit. It previously only ever pulled from Drive once per session, so a device that was just viewing History (not editing) could sit indefinitely on whatever it loaded early in the session while other devices kept adding entries.',
     detail:'The Settings message confirmed each device was correctly loading and pushing History with no error, but that only happens once per device per session (the first time it is needed), unlike the live asset file, which is checked against Drive roughly every 20 seconds regardless of whether that device is editing anything. So three devices open around the same time would each do their one History pull early on, and whichever one edited something afterward correctly merged and pushed it to Drive (v4.33) — but the other two, having already done their one pull for the session, never checked again and kept showing their older list. Added the same kind of check the asset file already has: every ~20-second background tick now also asks Drive whether the History file has changed since this device last saw it, and pulls and merges (same merge logic already in place) if so. A device that is just sitting on the History page, not editing at all, should now pick up another device\'s update within about 20 seconds, the same way the Dashboard already does.' },
   { version:'4.34', date: nowISO(), type:'patch', summary:'Added visibility into why the History archive might not be reaching Google Drive: a persistent error line on Settings (next to "History archive last synced…") now shows the actual reason if a History sync fails, instead of only a toast message that is easy to miss on a background sync nobody is watching happen.',
@@ -1298,6 +1300,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.33'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.34'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.35'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.36'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1337,7 +1340,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.35', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.36', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -3398,6 +3401,7 @@ function renderSettingsView(){
         </div>
       </div>
       <p id="cloud-last-history-sync-text" class="text-[11px] text-[#a89f85]">${historySyncStatusText()}</p>
+      <p class="text-[10px] font-mono text-[#a89f85] opacity-70 break-all">v4.36 diagnostic — compare this line across all devices: Active file ID ${escapeHtml(state.cloud.fileId||'—')} · History file ID ${escapeHtml(state.cloud.historyFileId||'—')}</p>
       <div class="max-h-72 overflow-y-auto scroll-thin">${changelogHtml}</div>
     </section>
   </div>`;
