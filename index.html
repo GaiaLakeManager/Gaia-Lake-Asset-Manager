@@ -1150,6 +1150,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.45', date: nowISO(), type:'patch', summary:'Fixed History staying permanently stuck out of sync on a device even though the live dashboard kept updating fine, with the Refresh Cloud Data button unable to recover it.',
+    detail:'Two separate issues combined to cause this. (1) applyRemoteHistoryData() (the code path that pulls and merges a History update from another device) was still using the plain idbClear()/idbPut() calls instead of the Raw variants \u2014 unlike its two closest siblings, pushHistoryToCloud() and applyRemoteActiveData(), which already correctly use idbClearRaw()/idbPutRaw() for exactly this reason. Every idbPut() unconditionally schedules a cloud push as a side effect, so this pull\u2019s own merge-and-rewrite step could re-flag dirty/historyDirty=true immediately after a clean pull, with a real chance that stale flag survives all the way to disk since nothing downstream re-saves it back to false. (2) More importantly, the actual Drive fetch calls (driveFetchJson) had no timeout \u2014 a request that stalled mid-flight (laptop sleep/wake, a wifi handoff, a dropped VPN) could hang forever instead of failing. Every sync function sets a busy flag (historySyncing/syncing/applyingRemote) before awaiting a Drive call and only clears it in a finally block once that call settles; a fetch that never resolves nor rejects means that finally never runs, wedging the flag true permanently \u2014 and since both the automatic 20s poll AND the manual \"Refresh Cloud Data\" button gate every sync attempt on that same flag being false, once wedged, nothing could recover it short of a full page reload. This exactly matches the reported symptom: the active-file poll (guarded by its own separate \"syncing\" flag) kept working and updated the dashboard, while History (guarded by \"historySyncing\") stayed frozen no matter how long the user waited or how many times they clicked refresh. Fixed by (a) switching applyRemoteHistoryData() to the Raw variants, and (b) giving every Drive fetch a 20s timeout (mirroring the 4s timeout ensureFreshAccessToken() already used for the same class of risk), so a stalled request now fails cleanly instead of hanging forever. Also hardened the manual sync button itself: an explicit click now force-clears all three busy flags before attempting anything, so it can always force a real recovery attempt even in the rare case something is still found stuck in the future \u2014 a no-op if nothing was actually wedged.' },
   { version:'4.44', date: nowISO(), type:'patch', summary:'Fixed a regression from v4.42: the app could get stuck continuously syncing on its own, with no edits and no user action \u2014 draining battery and eventually freezing the mobile browser tab.',
     detail:'v4.42 added a call to save the cloud sync bookkeeping (file ids, dirty flags) to IndexedDB right after each successful push, to fix the "reload loses pending push" bug. That bookkeeping save used idbPut() \u2014 which this codebase\u2019s own idbPutRaw() already carries a comment explaining should never be used for local-only bookkeeping, precisely because idbPut() always treats a write as new content and schedules another push. That turned the fix into a self-sustaining loop: a push succeeds -> saves its own bookkeeping via idbPut -> that save itself is treated as new data needing a push -> schedules another push -> succeeds -> saves bookkeeping again -> forever, entirely on its own, no error, no edits required. Switched saveCloudConfigToDB() to idbPutRaw(), matching the exact pattern already used elsewhere in this file for this exact class of problem (e.g. the auto-backup last-run tracker) \u2014 the bookkeeping is still saved every time, it just no longer re-triggers itself.' },
   { version:'4.43', date: nowISO(), type:'patch', summary:'Fixed a real timezone bug the user caught directly: a backup made shortly after local midnight was silently overwriting the PREVIOUS day\u2019s backup file instead of creating a new one \u2014 permanently losing that prior day\u2019s snapshot.',
@@ -1325,6 +1327,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.42'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.43'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.44'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.45'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1364,7 +1367,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.44', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.45', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -4859,7 +4862,29 @@ function cloudSignOut(){
 async function driveFetchJson(url, opts){
   opts = opts || {};
   const headers = Object.assign({}, opts.headers||{}, { Authorization: 'Bearer '+state.cloud.accessToken });
-  const res = await fetch(url, Object.assign({}, opts, { headers }));
+  // v4.45: fetch() had no timeout, so a request that stalls mid-flight
+  // (device sleep/wake, wifi handoff, a captive portal, a dropped VPN) could
+  // hang forever instead of failing. Every caller (ensureHistoryCloudLoaded,
+  // pushHistoryToCloud, pollCloud, etc.) sets a "busy" flag (historySyncing/
+  // syncing/applyingRemote) before awaiting this and only clears it in a
+  // finally block once the await settles — a fetch that never resolves NOR
+  // rejects means that finally never runs, wedging the flag true permanently.
+  // Every later attempt (the 20s poll AND the manual "Refresh Cloud Data"
+  // button) is itself gated on that same flag being false, so once wedged,
+  // nothing — including a manual click — can ever recover it short of a full
+  // page reload. Mirrors the 4s timeout ensureFreshAccessToken() already uses
+  // for the same class of risk on the token-refresh side.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(()=>controller.abort(), 20000);
+  let res;
+  try{
+    res = await fetch(url, Object.assign({}, opts, { headers, signal: controller.signal }));
+  }catch(e){
+    if(e.name === 'AbortError') throw new Error('Drive request timed out after 20s (network stalled).');
+    throw e;
+  }finally{
+    clearTimeout(timeoutId);
+  }
   if(!res.ok){
     const errText = await res.text().catch(()=> '');
     throw new Error(`Drive API ${res.status}: ${errText.slice(0,200)}`);
@@ -5083,9 +5108,27 @@ async function applyRemoteHistoryData(remote){
   try{
     const mergedHistory = mergeHistoryEntries(state.history, remote.history);
     const mergedChangelog = mergeChangelogEntries(state.meta.changelog, remote.changelog);
-    await idbClear('history');
-    for(const h of mergedHistory) await idbPut('history', h);
-    await idbPut('meta', { key:'version', version: state.meta.version, changelog: mergedChangelog });
+    // v4.45: was idbClear/idbPut (non-Raw), unlike the otherwise-identical
+    // merge-and-rewrite step in pushHistoryToCloud (idbClearRaw/idbPutRaw)
+    // and in applyRemoteActiveData (idbPutRaw throughout). Both idbClear and
+    // idbPut unconditionally call scheduleCloudPush() on every single write —
+    // this loop calls it once per merged History entry, plus once more for
+    // the version/changelog record, and that last one (key:'version') fires
+    // BOTH scheduleActiveCloudPush() and scheduleHistoryCloudPush(), each of
+    // which sets dirty/historyDirty=true and fires an un-awaited
+    // saveCloudConfigToDB() write to IndexedDB before checking applyingRemote
+    // and bailing out. loadAllData() right below re-reads those same
+    // dirty/historyDirty flags FROM IndexedDB via loadCloudConfig() — so
+    // depending on exactly when each fire-and-forget write actually lands,
+    // this pull could resurrect a stale "still needs pushing" flag right
+    // after a clean pull, one persisting all the way to disk since nothing
+    // downstream re-saves it back to false. Switched to the Raw variants so
+    // applying a remote pull can never itself schedule or flag a push,
+    // matching the established pattern everywhere else this exact class of
+    // problem has already been fixed (v4.28, v4.44).
+    await idbClearRaw('history');
+    for(const h of mergedHistory) await idbPutRaw('history', h);
+    await idbPutRaw('meta', { key:'version', version: state.meta.version, changelog: mergedChangelog });
     await loadAllData();
     state.cloud.historyDirty = false;
     render();
@@ -5648,6 +5691,19 @@ function updateAutoBackupStatusUI(){
 }
 async function cloudManualSync(){
   if(!state.cloud.connected){ showToast('Sign in to Google Drive first.','error'); return; }
+  // v4.45: force-clear the busy flags before attempting anything. Every sync
+  // path (poll tick, push, history load) is gated on syncing/historySyncing/
+  // applyingRemote being false, and normally a finally block always resets
+  // them — but a fetch that stalls mid-flight (see driveFetchJson's new
+  // timeout) could previously wedge one of these true forever, silently
+  // blocking every future automatic poll AND this exact manual button with
+  // no way to recover short of a full page reload. An explicit user click is
+  // the right moment to just force a clean attempt regardless: if nothing
+  // was actually stuck, clearing these has no effect since they're already
+  // false; if something WAS stuck, this is the only way to break out of it.
+  state.cloud.syncing = false;
+  state.cloud.historySyncing = false;
+  state.cloud.applyingRemote = false;
   await pollCloud();
   if(state.cloud.needsReconnect){
     showToast('Still reconnecting to Google Drive — click Sync Now again in a moment, or Sign Out/Sign In if this persists.','error');
