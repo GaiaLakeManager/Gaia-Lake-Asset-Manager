@@ -1150,6 +1150,8 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.44', date: nowISO(), type:'patch', summary:'Fixed a regression from v4.42: the app could get stuck continuously syncing on its own, with no edits and no user action \u2014 draining battery and eventually freezing the mobile browser tab.',
+    detail:'v4.42 added a call to save the cloud sync bookkeeping (file ids, dirty flags) to IndexedDB right after each successful push, to fix the "reload loses pending push" bug. That bookkeeping save used idbPut() \u2014 which this codebase\u2019s own idbPutRaw() already carries a comment explaining should never be used for local-only bookkeeping, precisely because idbPut() always treats a write as new content and schedules another push. That turned the fix into a self-sustaining loop: a push succeeds -> saves its own bookkeeping via idbPut -> that save itself is treated as new data needing a push -> schedules another push -> succeeds -> saves bookkeeping again -> forever, entirely on its own, no error, no edits required. Switched saveCloudConfigToDB() to idbPutRaw(), matching the exact pattern already used elsewhere in this file for this exact class of problem (e.g. the auto-backup last-run tracker) \u2014 the bookkeeping is still saved every time, it just no longer re-triggers itself.' },
   { version:'4.43', date: nowISO(), type:'patch', summary:'Fixed a real timezone bug the user caught directly: a backup made shortly after local midnight was silently overwriting the PREVIOUS day\u2019s backup file instead of creating a new one \u2014 permanently losing that prior day\u2019s snapshot.',
     detail:'Every "today\u2019s date" used for naming/keying the daily and monthly auto-backups was computed with toISOString().slice(0,10|7), which always returns the date in UTC \u2014 but Sri Lanka is UTC+5:30, so for the first ~5.5 hours of every local day, that calculation still reported YESTERDAY\u2019s date. An edit made at, say, 00:05 local time therefore reused yesterday\u2019s backup filename and PATCHED (overwrote) it with today\u2019s data, destroying the actual end-of-day snapshot that file was supposed to preserve. Weekly backups were unaffected \u2014 isoWeekLabel() already correctly started from the browser\u2019s local getFullYear()/getMonth()/getDate(). Added local-time equivalents (localDateKey/localMonthKey) and switched the daily and monthly backup logic to them, along with every export filename that stamped "today\u2019s date" the same broken way (JSON/Excel/CSV backups, all PDF exports, the dashboard summary image) for consistency, since they shared the identical defect even though only the backup one caused actual data loss. Deliberately left the Excel-import date-cell parser alone \u2014 it\u2019s a related-looking but functionally different problem (parsing an arbitrary date a spreadsheet cell already contains, not stamping "right now"), and deserves its own look at real import data rather than a blind copy of this fix.' },
   { version:'4.42', date: nowISO(), type:'patch', summary:'Fixed a separate, deeper issue found while confirming v4.41: locally-added History entries could sit unpushed to Google Drive indefinitely, because the "this needs pushing" flag lived only in memory and any page reload before a push completed silently erased it \u2014 with no error, and even the manual Sync Now button unable to recover it.',
@@ -1322,6 +1324,7 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.41'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.42'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.43'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.44'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1361,7 +1364,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.43', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.44', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -4595,7 +4598,19 @@ async function loadCloudConfig(){
   }
 }
 async function saveCloudConfigToDB(){
-  await idbPut('settings', {
+  // v4.44: was idbPut (which always calls scheduleCloudPush — see idbPutRaw's
+  // own comment above: "for local-only bookkeeping ... that should never
+  // itself trigger a push"). This IS exactly that kind of bookkeeping, but
+  // used the wrong one — always a latent risk, but it only became an actual
+  // infinite loop once v4.42 started calling this function from inside
+  // pushToCloud()/pushHistoryToCloud()'s own success handlers: push
+  // succeeds -> saves config via idbPut -> that save itself triggers
+  // scheduleCloudPush -> schedules another push -> succeeds -> saves config
+  // again -> forever, with no user action needed and no error, which is
+  // exactly the "syncing continuously even when untouched, phone eventually
+  // freezes" symptom. idbPutRaw fixes it by skipping that trigger, matching
+  // how the autoBackup tracker (a comparable local-only record) already does.
+  await idbPutRaw('settings', {
     key:'cloud', clientId: state.cloud.clientId, apiKey: state.cloud.apiKey,
     folderId: state.cloud.folderId, fileId: state.cloud.fileId, historyFileId: state.cloud.historyFileId,
     dirty: !!state.cloud.dirty, historyDirty: !!state.cloud.historyDirty
