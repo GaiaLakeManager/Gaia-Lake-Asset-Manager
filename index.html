@@ -1150,6 +1150,10 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.43', date: nowISO(), type:'patch', summary:'Fixed a real timezone bug the user caught directly: a backup made shortly after local midnight was silently overwriting the PREVIOUS day\u2019s backup file instead of creating a new one \u2014 permanently losing that prior day\u2019s snapshot.',
+    detail:'Every "today\u2019s date" used for naming/keying the daily and monthly auto-backups was computed with toISOString().slice(0,10|7), which always returns the date in UTC \u2014 but Sri Lanka is UTC+5:30, so for the first ~5.5 hours of every local day, that calculation still reported YESTERDAY\u2019s date. An edit made at, say, 00:05 local time therefore reused yesterday\u2019s backup filename and PATCHED (overwrote) it with today\u2019s data, destroying the actual end-of-day snapshot that file was supposed to preserve. Weekly backups were unaffected \u2014 isoWeekLabel() already correctly started from the browser\u2019s local getFullYear()/getMonth()/getDate(). Added local-time equivalents (localDateKey/localMonthKey) and switched the daily and monthly backup logic to them, along with every export filename that stamped "today\u2019s date" the same broken way (JSON/Excel/CSV backups, all PDF exports, the dashboard summary image) for consistency, since they shared the identical defect even though only the backup one caused actual data loss. Deliberately left the Excel-import date-cell parser alone \u2014 it\u2019s a related-looking but functionally different problem (parsing an arbitrary date a spreadsheet cell already contains, not stamping "right now"), and deserves its own look at real import data rather than a blind copy of this fix.' },
+  { version:'4.42', date: nowISO(), type:'patch', summary:'Fixed a separate, deeper issue found while confirming v4.41: locally-added History entries could sit unpushed to Google Drive indefinitely, because the "this needs pushing" flag lived only in memory and any page reload before a push completed silently erased it \u2014 with no error, and even the manual Sync Now button unable to recover it.',
+    detail:'This explains why the shared History file on Drive could stop updating (stuck on an old date) even while a device\u2019s own local History list kept growing correctly: the local data was always safe in this device\u2019s IndexedDB, but the signal that Drive still needed those entries could be lost the moment the page reloaded \u2014 a hard refresh, a browser restart, a phone killing the tab \u2014 before the 500ms-debounced push had a chance to run. The next successful push would still have caught up automatically eventually, but nothing forced that to happen, so a device with no further edits that session could go a long time with Drive silently behind. The dirty/historyDirty flags are now saved to IndexedDB the moment they\u2019re set and restored on the next load, so a reload can no longer erase them, and the load-success paths already checked these flags to catch up automatically. The manual Sync Now button also no longer relies solely on that flag \u2014 an explicit click now always attempts a real push if the file is ready, so it works as a reliable manual recovery option regardless.' },
   { version:'4.41', date: nowISO(), type:'patch', summary:'Found and fixed the actual root cause of History file ID staying blank: it only ever failed on a device finding an already-existing History file (created earlier by a different device) \u2014 which is exactly mobile\u2019s situation once PC had already created it.',
     detail:'applyRemoteHistoryData() (called after successfully downloading an existing History file) calls loadAllData(), which calls loadCloudConfig(), which re-reads historyFileId FROM IndexedDB. The newly-resolved id was only ever saved to IndexedDB at the very end of the whole function \u2014 so on a device that had never saved a historyFileId before (its first time finding one that another device already created), that disk value was still null, and loadCloudConfig()\u2019s re-read clobbered the just-resolved in-memory id back to null moments before the final check. This is exactly why it looked like "all steps reported success, but no id ended up set": every step genuinely did succeed, right up until an unrelated later step silently reset the result. The device that instead *creates* the file (PC, in this case) never calls applyRemoteHistoryData, so it never hit this \u2014 explaining the split. The Active-file sync path elsewhere in this app already saves its id to IndexedDB before its own download+apply step for this exact reason; the History path added later simply hadn\u2019t matched that ordering. Reordered it to match. Also added a step-by-step breadcrumb trail to the error message as a permanent safety net, so any future failure at this point names exactly which internal step ran and what it returned instead of a bare generic message.' },
   { version:'4.40', date: nowISO(), type:'patch', summary:'Diagnostic only, no behavior change: the "not resolved" error introduced in v4.39 was too generic to say which Drive step actually failed on mobile — this version labels each step so the next attempt shows exactly where and why.',
@@ -1316,6 +1320,8 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.39'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.40'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.41'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.42'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.43'),
 ];
 
 /* One-time correction for a small number of built-in locations that shipped
@@ -1355,7 +1361,7 @@ async function initMeta(){
   let m = await idbGet('meta','version');
   const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.41', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.43', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -3800,7 +3806,7 @@ async function exportAllData(){
   const blob = new Blob([JSON.stringify(payload,null,2)], { type:'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `gaia-lake-assets-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.download = `gaia-lake-assets-backup-${localDateKey()}.json`;
   a.click();
   showToast('Backup exported.');
 }
@@ -4516,7 +4522,7 @@ function exportAssetsToExcel(){
     const ws = XLSX.utils.json_to_sheet(assetExportRows());
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Assets');
-    XLSX.writeFile(wb, `gaia-lake-assets-${new Date().toISOString().slice(0,10)}.xlsx`);
+    XLSX.writeFile(wb, `gaia-lake-assets-${localDateKey()}.xlsx`);
     showToast('Exported to Excel.');
   }catch(err){
     showToast('Could not export to Excel: '+err.message, 'error');
@@ -4532,7 +4538,7 @@ function exportAssetsToCsv(){
     const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `gaia-lake-assets-${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `gaia-lake-assets-${localDateKey()}.csv`;
     a.click();
     showToast('Exported to CSV.');
   }catch(err){
@@ -4575,12 +4581,24 @@ async function loadCloudConfig(){
     state.cloud.folderId = c.folderId || DEFAULT_CLOUD_CONFIG.folderId;
     state.cloud.fileId = c.fileId || null;
     state.cloud.historyFileId = c.historyFileId || null;
+    // v4.42: dirty/historyDirty restored from disk too. Previously these
+    // lived only in memory, so a page reload — including the many
+    // hard-refreshes routine testing/deploying involves — silently erased
+    // the "this still needs pushing to Drive" signal for any edit made
+    // since the last successful push, with no error and no visible sign
+    // anything was wrong: the edit stayed safely in this device's local
+    // IndexedDB and displayed normally in the UI, but nothing would ever
+    // attempt to push it again, and even the manual Sync Now button checked
+    // this same now-false in-memory flag, so it couldn't recover it either.
+    state.cloud.dirty = !!c.dirty;
+    state.cloud.historyDirty = !!c.historyDirty;
   }
 }
 async function saveCloudConfigToDB(){
   await idbPut('settings', {
     key:'cloud', clientId: state.cloud.clientId, apiKey: state.cloud.apiKey,
-    folderId: state.cloud.folderId, fileId: state.cloud.fileId, historyFileId: state.cloud.historyFileId
+    folderId: state.cloud.folderId, fileId: state.cloud.fileId, historyFileId: state.cloud.historyFileId,
+    dirty: !!state.cloud.dirty, historyDirty: !!state.cloud.historyDirty
   });
 }
 
@@ -5121,6 +5139,7 @@ function scheduleCloudPush(storeName, value){
 function scheduleActiveCloudPush(){
   if(!state.cloud.connected || !state.cloud.fileId || state.cloud.applyingRemote || !state.cloud.syncReady){
     state.cloud.dirty = true;
+    saveCloudConfigToDB().catch(()=>{}); // v4.42: persist immediately — see loadCloudConfig() note
     console.log('[cloud] active push deferred — connected:'+state.cloud.connected+' fileId:'+!!state.cloud.fileId+' applyingRemote:'+state.cloud.applyingRemote+' syncReady:'+state.cloud.syncReady+' (queued, will retry on next poll/manual sync/login)');
     return;
   }
@@ -5129,6 +5148,7 @@ function scheduleActiveCloudPush(){
 }
 function scheduleHistoryCloudPush(){
   state.cloud.historyDirty = true;
+  saveCloudConfigToDB().catch(()=>{}); // v4.42: persist the dirty flag itself immediately — see loadCloudConfig() note
   if(!state.cloud.connected || state.cloud.applyingRemote){
     console.log('[cloud] history push deferred — connected:'+state.cloud.connected+' applyingRemote:'+state.cloud.applyingRemote);
     return;
@@ -5176,6 +5196,7 @@ async function pushToCloud(){
     state.cloud.lastRemoteModified = updated.modifiedTime;
     state.cloud.lastSync = nowISO();
     state.cloud.dirty = false;
+    saveCloudConfigToDB().catch(()=>{}); // v4.42: persist the cleared flag too
     state.cloud.lastPushError = null;
     if(state.cloud.needsReconnect){ state.cloud.needsReconnect = false; updateCloudBanner(); }
     setCloudStatus('on','Synced');
@@ -5330,6 +5351,7 @@ async function pushHistoryToCloud(){
     state.cloud.lastHistoryRemoteModified = updated.modifiedTime;
     state.cloud.lastHistorySync = nowISO();
     state.cloud.historyDirty = false;
+    saveCloudConfigToDB().catch(()=>{}); // v4.42: persist the cleared flag too
     state.cloud.lastHistoryPushError = null;
     if(state.cloud.needsReconnect){ state.cloud.needsReconnect = false; updateCloudBanner(); }
   }catch(err){
@@ -5434,6 +5456,19 @@ function isoWeekLabel(d){
   const week = 1 + Math.round(((t - firstThursday) / 86400000 - 3 + ((firstThursday.getUTCDay()+6)%7)) / 7);
   return `${t.getUTCFullYear()}-W${String(week).padStart(2,'0')}`;
 }
+// v4.43: `new Date().toISOString().slice(0,10)` was used all over this file to
+// get "today's date" as YYYY-MM-DD — but toISOString() always returns UTC,
+// while a user in a positive-offset timezone (e.g. Sri Lanka, UTC+5:30) is
+// still on YESTERDAY's date in UTC terms for the first several hours of
+// their own local day (e.g. local 00:05 is still 18:35 the previous day in
+// UTC). For the daily/monthly auto-backup date-keys specifically, this meant
+// an edit made shortly after local midnight silently PATCHED (overwrote)
+// the previous day's backup file instead of creating a new one for the new
+// day — permanently losing that prior day's end-of-day snapshot. These two
+// helpers use getFullYear()/getMonth()/getDate() (local-time getters, same
+// approach isoWeekLabel above already used correctly) instead.
+function localDateKey(d){ d = d || new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function localMonthKey(d){ d = d || new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
 function buildFullBackupPayload(){
   return {
     exportedAt: nowISO(),
@@ -5515,9 +5550,9 @@ async function runAutoBackup(period, filename){
   // Drive existence check, or updateDailyBackupAfterPush firing on a real edit),
   // this never gates anything.
   const rec = (await idbGet('meta','autoBackup')) || { key:'autoBackup', lastDaily:null, lastWeekly:null, lastMonthly:null };
-  if(period==='daily') rec.lastDaily = new Date().toISOString().slice(0,10);
+  if(period==='daily') rec.lastDaily = localDateKey();
   else if(period==='weekly') rec.lastWeekly = isoWeekLabel(new Date());
-  else if(period==='monthly') rec.lastMonthly = new Date().toISOString().slice(0,7);
+  else if(period==='monthly') rec.lastMonthly = localMonthKey();
   await idbPutRaw('meta', rec);
 }
 async function backupFileExists(filename, folderId){
@@ -5553,7 +5588,7 @@ async function checkWeeklyMonthlyBackups(){
   if(!state.cloud.connected || !state.cloud.syncReady) return;
   const now = new Date();
   const weekKey = isoWeekLabel(now);
-  const monthKey = now.toISOString().slice(0,7);
+  const monthKey = localMonthKey(now);
   const folderId = await getOrCreateBackupFolderId();
   const weeklyName = `gaia-lake-backup-weekly-${weekKey}.json`;
   const monthlyName = `gaia-lake-backup-monthly-${monthKey}.json`;
@@ -5564,7 +5599,7 @@ async function checkWeeklyMonthlyBackups(){
 }
 async function updateDailyBackupAfterPush(){
   if(!state.cloud.connected || !state.cloud.syncReady) return;
-  const todayKey = new Date().toISOString().slice(0,10);
+  const todayKey = localDateKey();
   await runAutoBackup('daily', `gaia-lake-backup-daily-${todayKey}.json`);
   updateAutoBackupStatusUI();
 }
@@ -5574,7 +5609,7 @@ async function runManualBackupNow(){
   const original = btn ? btn.textContent : '';
   if(btn){ btn.disabled = true; btn.textContent = 'Backing up…'; }
   try{
-    const todayKey = new Date().toISOString().slice(0,10);
+    const todayKey = localDateKey();
     await runAutoBackup('daily', `gaia-lake-backup-daily-${todayKey}.json`);
     updateAutoBackupStatusUI();
     showToast('Backup saved to the Backup folder on Drive.');
@@ -5603,8 +5638,14 @@ async function cloudManualSync(){
     showToast('Still reconnecting to Google Drive — click Sync Now again in a moment, or Sign Out/Sign In if this persists.','error');
     return;
   }
-  if(state.cloud.dirty) await pushToCloud();
-  if(state.cloud.historyLoaded && state.cloud.historyDirty) await pushHistoryToCloud();
+  // v4.42: an explicit manual click always attempts a push (as long as the
+  // file itself is loaded/ready) rather than gating on the dirty flags —
+  // those are now persisted (see loadCloudConfig() note) so this should
+  // rarely matter, but a user-initiated "sync now" is exactly the moment a
+  // guaranteed real attempt (worst case, a harmless redundant push) is more
+  // valuable than one more silent no-op if anything is ever still amiss.
+  if(state.cloud.syncReady) await pushToCloud();
+  if(state.cloud.historyLoaded && state.cloud.historySyncReady) await pushHistoryToCloud();
   showToast('Sync check complete.');
 }
 
@@ -5947,7 +5988,7 @@ async function runManifestImagesPdf(mode){
     if(mode==='view'){
       window.open(doc.output('bloburl'), '_blank');
     } else {
-      doc.save(`inventory-manifest-with-images-${new Date().toISOString().slice(0,10)}.pdf`);
+      doc.save(`inventory-manifest-with-images-${localDateKey()}.pdf`);
     }
   } catch(err){
     showToast('Could not build the photo PDF: '+err.message, 'error');
@@ -6218,7 +6259,7 @@ async function run3appPdf(rows, mode){
     if(mode==='view'){
       window.open(doc.output('bloburl'), '_blank');
     } else {
-      doc.save(`gaia-lake-3app-${new Date().toISOString().slice(0,10)}.pdf`);
+      doc.save(`gaia-lake-3app-${localDateKey()}.pdf`);
     }
   }catch(err){
     showToast('Could not build the 3-per-page sheet: '+err.message, 'error');
@@ -6329,7 +6370,7 @@ async function runQrLabelsPdf(rows, mode){
     if(mode==='view'){
       window.open(doc.output('bloburl'), '_blank');
     } else {
-      doc.save(`gaia-lake-qr-labels-${new Date().toISOString().slice(0,10)}.pdf`);
+      doc.save(`gaia-lake-qr-labels-${localDateKey()}.pdf`);
     }
   }catch(err){
     showToast('Could not build the QR label sheet: '+err.message, 'error');
@@ -6344,7 +6385,7 @@ async function printManifest(asPdf){
     setTimeout(()=>window.print(), 150);
   } else {
     const doc = await buildManifestPdfDoc(rows);
-    doc.save(`inventory-manifest-${new Date().toISOString().slice(0,10)}.pdf`);
+    doc.save(`inventory-manifest-${localDateKey()}.pdf`);
   }
 }
 function viewManifestPdf(){
@@ -6406,7 +6447,7 @@ async function downloadSummaryCardImage(){
     const el = document.getElementById('summary-card-standalone');
     const canvas = await html2canvas(el, { scale:2, backgroundColor:'#ffffff' });
     const link = document.createElement('a');
-    link.download = `assets-inventory-summary-${dashPeriod}-${new Date().toISOString().slice(0,10)}.png`;
+    link.download = `assets-inventory-summary-${dashPeriod}-${localDateKey()}.png`;
     link.href = canvas.toDataURL('image/png');
     link.click();
     showToast('Summary image downloaded.');
