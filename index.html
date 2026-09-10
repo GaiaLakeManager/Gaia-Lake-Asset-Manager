@@ -329,70 +329,35 @@ or redistribution is strictly prohibited.
    0. STATIC CONFIG — locations, categories, conditions
 --------------------------------------------------------------------------- */
 let LOCATIONS = [
-  { code:"RM1",  name:"Room 1",         zone:"Guest Areas" },
-  { code:"RM2",  name:"Room 2",         zone:"Guest Areas" },
-  { code:"RM3",  name:"Room 3",         zone:"Guest Areas" },
-  { code:"RM4",  name:"Room 4",         zone:"Guest Areas" },
-  { code:"POL", name:"Pool",           zone:"Guest Areas" },
-  { code:"GDN", name:"Garden",         zone:"Guest Areas" },
-  { code:"LBY", name:"Lobby",          zone:"Guest Areas" },
-  { code:"GPT", name:"Guest Pantry",   zone:"Guest Areas" },
-  { code:"KIT", name:"Main Kitchen",   zone:"Operations" },
-  { code:"SR1", name:"Store Room 1",   zone:"Operations" },
-  { code:"SR2", name:"Store Room 2",   zone:"Operations" },
-  { code:"SR3", name:"Store Room 3",   zone:"Operations" },
-  { code:"GEN", name:"Generator Room", zone:"Operations" },
-  { code:"MGR", name:"Manager Room",   zone:"Staff & Management" },
-  { code:"ST1", name:"Staff room 1",   zone:"Staff & Management" },
-  { code:"ST2", name:"Staff room 2",   zone:"Staff & Management" },
+  { name:"Room 1",         zone:"Guest Areas" },
+  { name:"Room 2",         zone:"Guest Areas" },
+  { name:"Room 3",         zone:"Guest Areas" },
+  { name:"Room 4",         zone:"Guest Areas" },
+  { name:"Pool",           zone:"Guest Areas" },
+  { name:"Garden",         zone:"Guest Areas" },
+  { name:"Lobby",          zone:"Guest Areas" },
+  { name:"Guest Pantry",   zone:"Guest Areas" },
+  { name:"Main Kitchen",   zone:"Operations" },
+  { name:"Store Room 1",   zone:"Operations" },
+  { name:"Store Room 2",   zone:"Operations" },
+  { name:"Store Room 3",   zone:"Operations" },
+  { name:"Generator Room", zone:"Operations" },
+  { name:"Manager Room",   zone:"Staff & Management" },
+  { name:"Staff room 1",   zone:"Staff & Management" },
+  { name:"Staff room 2",   zone:"Staff & Management" },
 ];
 const DEFAULT_LOCATIONS = LOCATIONS.map(l=>Object.assign({},l));
 const ZONES = ["Guest Areas","Operations","Staff & Management"];
 
 let CATEGORIES = [
-  { code:"ELE", name:"Electronics" },
-  { code:"FUR", name:"Furniture" },
-  { code:"LIN", name:"Linen" },
-  { code:"UTL", name:"Utilities" },
-  { code:"APP", name:"Appliances" },
+  { name:"Electronics" },
+  { name:"Furniture" },
+  { name:"Linen" },
+  { name:"Utilities" },
+  { name:"Appliances" },
 ];
 const DEFAULT_CATEGORIES = CATEGORIES.map(c=>Object.assign({},c));
 
-/* Smart Asset Codes — derive a clean 3-character (letters/numbers) code from
-   a custom category or location name, always exactly 3 characters so every
-   generated Asset Number barcodes consistently; falls back to a numbered
-   suffix if the derived code already exists. */
-function deriveCategoryCode(name){
-  let base = (name||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,3).toUpperCase();
-  if(base.length < 3) base = (base + 'XXX').slice(0,3);
-  let code = base, n = 1;
-  while(CATEGORIES.some(c=>c.code===code)){
-    n++; code = (base.slice(0,2) + n).toUpperCase().slice(0,3);
-  }
-  return code;
-}
-/* Same idea for a location code — derived from the first letters of each
-   significant word (e.g. "Upstairs Lounge" -> "UPL"), falling back to a
-   numbered suffix if it collides with an existing code. Always exactly 3
-   characters. */
-function deriveLocationCode(name){
-  const words = (name||'').replace(/[^a-zA-Z0-9\s]/g,'').trim().split(/\s+/).filter(Boolean);
-  let base;
-  if(words.length >= 3){
-    base = words.slice(0,3).map(w=>w[0]).join('').toUpperCase();
-  } else if(words.length === 2){
-    base = (words[0].slice(0,2) + words[1][0]).toUpperCase();
-  } else {
-    base = (words[0]||'LOC').toUpperCase();
-  }
-  base = base.replace(/[^A-Z0-9]/g,'').slice(0,3);
-  if(base.length < 3) base = (base + 'XXX').slice(0,3);
-  let code = base, n = 1;
-  while(LOCATIONS.some(l=>l.code===code)){
-    n++; code = (base.slice(0,2) + n).toUpperCase().slice(0,3);
-  }
-  return code;
-}
 /* Heuristic zone assignment for a location name we've never seen before —
    used only by the Excel importer when auto-creating a new location. */
 function guessZoneForLocation(name){
@@ -413,9 +378,7 @@ const CONDITIONS = [
   { key:"Unusable",  cls:"badge-unusable",  dot:"#0000ff", bg:"#0000ff", text:"#ffffff" },
 ];
 
-function locByCode(c){ return LOCATIONS.find(l=>l.code===c); }
 function locByName(n){ return LOCATIONS.find(l=>l.name===n); }
-function catByCode(c){ return CATEGORIES.find(x=>x.code===c); }
 function catByName(n){ return CATEGORIES.find(x=>x.name===n); }
 function condMeta(k){ return CONDITIONS.find(c=>c.key===k) || CONDITIONS[0]; }
 
@@ -529,6 +492,14 @@ function idbDelete(storeName,key){
       // in memory would just re-add it back in on the next merge. See the
       // MULTI-DEVICE SYNC MERGE section near pushToCloud for how this is used.
       if(storeName === 'assets') recordDeletionTombstone(key).catch(e=>console.error('[sync] tombstone record failed:', e));
+      // v4.48: same reasoning, for History. mergeHistoryEntries is a pure
+      // union (see its own comment) precisely because normal History entries
+      // should never be lost between devices — but that same union rule had
+      // no way to tell "this device hasn't synced this entry yet" apart from
+      // "an admin deliberately deleted this entry", so it silently undid every
+      // History deletion on the very next push/pull. A tombstone here closes
+      // that gap the same way it already does for assets.
+      if(storeName === 'history') recordHistoryDeletionTombstone(key).catch(e=>console.error('[sync] history tombstone record failed:', e));
     };
     req.onerror = (e)=>reject(e.target.error);
   });
@@ -980,11 +951,18 @@ const DEFAULT_COMPANY = {
   email: 'gaialakekandalama@gmail.com',
   website: ''
 };
-// Only this signed-in Google account sees master configuration panels in Settings.
+// Only these signed-in Google accounts see master configuration panels in
+// Settings. ADMIN_EMAIL below is now only a seed value (first install) and a
+// last-resort fallback — the editable, synced list lives in
+// state.settings.adminEmails (see loadSettings/the Settings admin panel).
 const ADMIN_EMAIL = 'gaialakewebapps@gmail.com';
+function adminEmailList(){
+  const list = Array.isArray(state.settings.adminEmails) ? state.settings.adminEmails : [];
+  return list.length ? list : [ADMIN_EMAIL]; // never lock everyone out if this ever syncs empty/corrupted
+}
 function isAdminSession(){
   return !!(state.cloud.connected && state.cloud.userEmail &&
-    state.cloud.userEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase());
+    adminEmailList().some(e=> e.toLowerCase() === state.cloud.userEmail.toLowerCase()));
 }
 
 /* ---------------------------------------------------------------------------
@@ -999,7 +977,8 @@ const state = {
   settings: {
     companyName: DEFAULT_COMPANY.companyName, address: DEFAULT_COMPANY.address,
     phone: DEFAULT_COMPANY.phone, email: DEFAULT_COMPANY.email, website: DEFAULT_COMPANY.website,
-    currency:'LKR', logo: DEFAULT_LOGO_URL, themeColor:'#4c9d38', sidebarColor:'#1c2128', darkMode:false
+    currency:'LKR', logo: DEFAULT_LOGO_URL, themeColor:'#4c9d38', sidebarColor:'#1c2128', darkMode:false,
+    adminEmails: [ADMIN_EMAIL]   // v4.49: editable admin allowlist — see isAdminSession()
   },
   meta: { version:'1.0', changelog:[] },
   editing: null,                // asset object currently in editor, or null (new)
@@ -1150,6 +1129,16 @@ async function logHistory(action, item){
    6. VERSION / CHANGELOG ENGINE
 --------------------------------------------------------------------------- */
 const DEFAULT_CHANGELOG = [
+  { version:'4.50', date: nowISO(), type:'patch', summary:'Removed leftover category/location "code" plumbing from the Settings page \u2014 dead weight left over from the old numbering scheme, no longer used by anything.',
+    detail:'Asset Numbers switched to the sequential YY#### scheme a while back and haven\u2019t encoded a category/location code since \u2014 but the 3-letter code generator, its live preview field on the Add Category/Add Location forms, the "\u00b7 CODE" badge shown next to every category/location pill, and two lookup helpers (catByCode/locByCode) that were never even called anymore all kept running as inert leftovers. Also removed a one-time v3.2 migration routine (migrateShortLocationCodesV32) that was already fully unreachable for every install at this version \u2014 it only ever fired when upgrading from before v3.2, which no longer applies to a fresh install or to any account already this far along. Corrected two Settings help-text lines that had drifted out of sync with actual behavior and were describing the old scheme: Asset Categories claimed renaming regenerates Asset Numbers (it doesn\u2019t, and hasn\u2019t for a while), and Storage Locations claimed the same for a location rename. Both now correctly state that Asset Numbers are permanent and never change on a rename or move, matching what the rename functions themselves already did. Category and location records created before this version keep whatever code value they already have in storage (harmless, simply unused now) \u2014 nothing needed to change there.' },
+  { version:'4.49', date: nowISO(), type:'minor', summary:'Added multi-administrator support \u2014 more than one Google account can now hold full Administrator access, managed from Settings.',
+    detail:'Previously exactly one hardcoded email had Administrator rights (Company Metadata, Cloud Connection, deletion approvals, History wipeout/recover, etc.) \u2014 every other signed-in account saw a locked-panel notice with no way to grant anyone else that access short of editing the source file. Added an "Administrators" panel in Settings (visible to existing admins only) listing every admin email with an Add field and a Remove button per entry; the list is stored in Settings, so it syncs across devices the same way Company Metadata already does. A safeguard blocks removing the last remaining administrator, so the account can never end up with zero admins. The original single hardcoded email still exists as a fallback seed for upgrading installs and a last-resort safety net if the list were ever corrupted or synced empty, but is no longer the sole authority. Worth noting plainly: this is an application-level convenience layer, not the actual security boundary \u2014 the real access control is Google Drive\u2019s own sharing permission on the underlying files (anyone Drive lets edit the file can, in principle, write to it directly regardless of what the app\u2019s admin list says); a technically capable user with genuine Drive Editor access could bypass this check entirely. For a small trusted team this is a solid, appropriate deterrent \u2014 a tamper-proof role boundary would need a real backend to enforce, which this architecture (client-only, Drive-as-database) deliberately doesn\u2019t have.' },
+  { version:'4.48', date: nowISO(), type:'minor', summary:'History deletions weren\u2019t actually permanent \u2014 a background sync could silently bring a deleted record back, unchanged, within seconds. Fixed, and added Recover.',
+    detail:'Root cause: clicking the trash icon deleted a History record locally, but that deletion also triggers a background push (same as any local change) \u2014 which pulls Drive\u2019s current copy and merges it into the local copy using a "keep anything present on either side" union rule. That rule exists deliberately for ordinary History entries (so two devices comparing logs never lose an entry one hasn\u2019t synced yet), but it had no way to tell "missing because not yet synced" apart from "missing because someone deliberately deleted it" \u2014 so the very push the deletion triggered silently restored the exact same record, invisibly, until the next reload made it visible again. Fixed with a History deletion tombstone (the same pattern already used for deleted assets): every deleted History-entry id is now tracked and excluded from the merge on both push and pull, on every device, so a deletion finally sticks. Also reworked what the trash icon does, based on discussion of the actual admin workflow needed for clearing out test/mistaken records: on a row already showing "Deleted," it is now a genuine permanent wipeout (irreversible, with a matching warning). On any other row (Created/Updated), it no longer touches live inventory or rewrites that row\u2019s own action \u2014 doing so would make the audit log lie about when an item was actually deleted. Instead it stages the row: the original entry is removed (tombstoned) and a new entry is logged with action "Deleted" and today\u2019s date, ready to be wiped out with a second click once desired \u2014 letting an admin fully clear a test item\u2019s trail (Created + Updated + Deleted, all logged, all eventually removable) without ever touching a real live asset or fabricating a false timeline. New: a Recover button appears only on a "Deleted" row with no matching live asset. It restores the item to active inventory using whatever fields that History entry actually captured (name, category, location, qty, condition, image, notes \u2014 Purchase Price/Vendor/Sub-Category were never logged and start blank on a recovered item, same as any new item) and logs a new "Recovered" entry; the original "Deleted" row is left exactly as it was, so the log reads as two honest, separate facts \u2014 deleted, then later recovered \u2014 rather than one edited fact. If the item\u2019s old Asset Number has since been reused by something else, Recover assigns a fresh number instead of creating a duplicate, and says so before proceeding.' },
+  { version:'4.47', date: nowISO(), type:'patch', summary:'Fixed a permanently-deleted item getting silently resurrected into active inventory, mislabeled as "updated," when opened from its History row.',
+    detail:'The eye ("Open") icon on a History row fell back to opening the raw History log entry itself in the edit form whenever the underlying asset no longer existed (e.g. it had been permanently deleted). A History entry carries its own `id` field \u2014 the log entry\u2019s own id, not the item\u2019s \u2014 and saveStandardItem() decides new-vs-update purely by checking whether `e.id` is set. That non-empty id made Save believe it was editing a real, still-existing item: saving (or deleting again) from that state wrote it back into the assets table as a new item under the wrong internal id and logged the action as "updated" instead of reflecting that the item was already gone for good. Fixed by no longer opening the editor at all when a History row has no matching live asset \u2014 it now shows a clear message pointing to Print/Export PDF (to view the historical snapshot) or the trash icon (to remove the log entry itself), instead of silently resurrecting a deleted item. The existing per-row "Delete Record" trash icon already does exactly what an administrator needs to permanently purge a stray or test entry from History \u2014 it deletes only that log entry via idbDelete, with no new record ever created \u2014 that button was already correct and untouched by this fix.' },
+  { version:'4.46', date: nowISO(), type:'patch', summary:'Cleanup only, no functional change: removed the temporary diagnostic code added while tracking down the v4.36–v4.45 History sync bugs, now that they\u2019re confirmed fixed across all devices.',
+    detail:'Removed the Settings "v4.37 diagnostic" line that printed both Drive file IDs side by side for cross-device comparison, and the step-by-step breadcrumb trail inside ensureHistoryCloudLoaded() (the internal `steps` array and its per-branch labeled try/catch wrapping) that recorded exactly which lookup/create step ran, used only to pin down where the old File-ID bug was actually failing. The real fixes those investigations led to \u2014 the historySyncing re-entrancy guard, saving the resolved File ID to IndexedDB before applying a remote pull, the safety check that refuses to mark a load successful with a blank File ID, and the once-per-distinct-error toast \u2014 are all untouched and still in place. Kept the "History archive last synced\u2026" line and its "Last history sync error" detail on Settings, since that mirrors the Active file\u2019s existing status line and remains genuinely useful for spotting a real future sync problem, not just the one this cleanup was about.' },
   { version:'4.45', date: nowISO(), type:'patch', summary:'Fixed History staying permanently stuck out of sync on a device even though the live dashboard kept updating fine, with the Refresh Cloud Data button unable to recover it.',
     detail:'Two separate issues combined to cause this. (1) applyRemoteHistoryData() (the code path that pulls and merges a History update from another device) was still using the plain idbClear()/idbPut() calls instead of the Raw variants \u2014 unlike its two closest siblings, pushHistoryToCloud() and applyRemoteActiveData(), which already correctly use idbClearRaw()/idbPutRaw() for exactly this reason. Every idbPut() unconditionally schedules a cloud push as a side effect, so this pull\u2019s own merge-and-rewrite step could re-flag dirty/historyDirty=true immediately after a clean pull, with a real chance that stale flag survives all the way to disk since nothing downstream re-saves it back to false. (2) More importantly, the actual Drive fetch calls (driveFetchJson) had no timeout \u2014 a request that stalled mid-flight (laptop sleep/wake, a wifi handoff, a dropped VPN) could hang forever instead of failing. Every sync function sets a busy flag (historySyncing/syncing/applyingRemote) before awaiting a Drive call and only clears it in a finally block once that call settles; a fetch that never resolves nor rejects means that finally never runs, wedging the flag true permanently \u2014 and since both the automatic 20s poll AND the manual \"Refresh Cloud Data\" button gate every sync attempt on that same flag being false, once wedged, nothing could recover it short of a full page reload. This exactly matches the reported symptom: the active-file poll (guarded by its own separate \"syncing\" flag) kept working and updated the dashboard, while History (guarded by \"historySyncing\") stayed frozen no matter how long the user waited or how many times they clicked refresh. Fixed by (a) switching applyRemoteHistoryData() to the Raw variants, and (b) giving every Drive fetch a 20s timeout (mirroring the 4s timeout ensureFreshAccessToken() already used for the same class of risk), so a stalled request now fails cleanly instead of hanging forever. Also hardened the manual sync button itself: an explicit click now force-clears all three busy flags before attempting anything, so it can always force a real recovery attempt even in the rare case something is still found stuck in the future \u2014 a no-op if nothing was actually wedged.' },
   { version:'4.44', date: nowISO(), type:'patch', summary:'Fixed a regression from v4.42: the app could get stuck continuously syncing on its own, with no edits and no user action \u2014 draining battery and eventually freezing the mobile browser tab.',
@@ -1328,52 +1317,22 @@ const MIGRATION_CHANGELOG = [
   DEFAULT_CHANGELOG.find(c=>c.version==='4.43'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.44'),
   DEFAULT_CHANGELOG.find(c=>c.version==='4.45'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.46'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.47'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.48'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.49'),
+  DEFAULT_CHANGELOG.find(c=>c.version==='4.50'),
 ];
-
-/* One-time correction for a small number of built-in locations that shipped
-   with a 2- or 4-character code (Room 1-4 as "R1".."R4", Pool as "POOL")
-   instead of the strict 3-character format every other zone already used.
-   Regenerates Asset Numbers for any current records at those locations using
-   the same safe pattern as a manual rename — the OLD Asset Number is kept in
-   History for audit, quantities are untouched. Returns how many records were
-   renumbered so the caller can inform the admin (existing printed barcodes
-   for those items will need reprinting). */
-async function migrateShortLocationCodesV32(){
-  const fixes = { 'R1':'RM1', 'R2':'RM2', 'R3':'RM3', 'R4':'RM4', 'POOL':'POL' };
-  let renumbered = 0, anyCodeChanged = false;
-  for(const loc of LOCATIONS){
-    const newCode = fixes[loc.code];
-    if(!newCode || newCode===loc.code) continue;
-    const oldCode = loc.code;
-    loc.code = newCode;
-    anyCodeChanged = true;
-    const affected = state.assets.filter(a=>a.location===loc.name);
-    for(const row of affected){
-      const oldNum = row.assetNumber;
-      const newNum = await nextAssetNumber();
-      row.assetNumber = newNum || oldNum;
-      row.lastUpdated = nowISO();
-      await idbPut('assets', row);
-      await logHistory('renumbered', Object.assign({}, row, { assetNumber: oldNum,
-        notes: (row.notes?row.notes+' — ':'')+`Renumbered from ${oldNum} (location code corrected ${oldCode} \u2192 ${newCode} for consistent 3-character barcoding)` }));
-      renumbered++;
-    }
-  }
-  if(anyCodeChanged) await saveLocations();
-  return renumbered;
-}
 
 async function initMeta(){
   let m = await idbGet('meta','version');
-  const isFreshInstall = !m;
   if(!m){
-    m = { key:'version', version:'4.45', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.50', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
   state.meta.changelog = m.changelog || DEFAULT_CHANGELOG;
   const known = new Set(state.meta.changelog.map(c=>c.version));
-  const crossingTo32 = !isFreshInstall && !known.has('3.2');
   let changed = false;
   for(const entry of MIGRATION_CHANGELOG){
     if(entry && !known.has(entry.version)){
@@ -1383,10 +1342,6 @@ async function initMeta(){
     }
   }
   if(changed) await idbPut('meta', { key:'version', version: state.meta.version, changelog: state.meta.changelog });
-  if(crossingTo32){
-    const renumbered = await migrateShortLocationCodesV32();
-    if(renumbered) showToast(`Location codes corrected to 3 characters for clean barcoding — ${renumbered} Asset Number(s) were regenerated (old numbers kept in History for audit).`, 'info');
-  }
   document.getElementById('sidebar-version').textContent = 'v'+state.meta.version;
   document.getElementById('footer-version').textContent = 'v'+state.meta.version;
   document.getElementById('mobile-sidebar-version').textContent = 'v'+state.meta.version;
@@ -1460,7 +1415,7 @@ async function ensureCategory(name){
   if(!name) return null;
   let existing = CATEGORIES.find(c=>c.name.toLowerCase()===name.toLowerCase());
   if(existing) return existing;
-  const created = { code: deriveCategoryCode(name), name };
+  const created = { name };
   CATEGORIES.push(created);
   await saveCategories();
   return created;
@@ -1470,7 +1425,7 @@ async function ensureLocation(name, zoneHint){
   if(!name) return null;
   let existing = LOCATIONS.find(l=>l.name.toLowerCase()===name.toLowerCase());
   if(existing) return existing;
-  const created = { code: deriveLocationCode(name), name, zone: zoneHint || guessZoneForLocation(name) };
+  const created = { name, zone: zoneHint || guessZoneForLocation(name) };
   LOCATIONS.push(created);
   await saveLocations();
   return created;
@@ -1487,6 +1442,11 @@ async function loadSettings(){
     // just "Kandalama, Sri Lanka" — upgrade that stale exact default to the
     // full production address without touching any other custom address.
     if(s.address === 'Kandalama, Sri Lanka') s.address = DEFAULT_COMPANY.address;
+    // v4.49: an install synced before adminEmails existed won't have the
+    // field at all — seed it with the original single-admin constant so the
+    // existing admin isn't locked out, without overwriting a value some
+    // other already-upgraded device already saved.
+    if(!Array.isArray(s.adminEmails) || !s.adminEmails.length) s.adminEmails = [ADMIN_EMAIL];
     state.settings = Object.assign(state.settings, s);
     await saveSettingsToDB();
   }
@@ -2998,10 +2958,38 @@ function renderHistoryView(){
     </div>
   </div>`;
 }
+/* v4.48: reliable "does a live asset still exist for this History row" check,
+   shared by the Open button and the new Recover button. assetId is the
+   actual foreign key logHistory() stores for exactly this purpose (see its
+   own comment: "assetNumber alone is not [reliable]") — falls back to
+   assetNumber+condition only for older rows logged before assetId existed. */
+function findLiveAssetForHistoryRow(rec){
+  if(!rec) return null;
+  if(rec.assetId){
+    const byId = state.assets.find(a=>a.id===rec.assetId);
+    if(byId) return byId;
+  }
+  return state.assets.find(a=>a.assetNumber===rec.assetNumber && a.condition===rec.condition) || null;
+}
+function iconRestore(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>`; }
 function historyRowsHtml(rows){
   const admin = isAdminSession();
   return rows.length ? rows.map(h=>{
     const c = condMeta(h.condition);
+    const isDeletedRow = h.action === 'deleted';
+    const hasLive = !!findLiveAssetForHistoryRow(h);
+    // v4.48: bin behavior depends on this row's current action. On a
+    // "Deleted" row it's a real, permanent wipeout (tombstoned so it can't
+    // resurrect via sync). On any other row it never touches live inventory
+    // or the row's own action label — it stages a copy: the old row is
+    // removed (tombstoned) and replaced with a brand-new row dated today
+    // with action "Deleted", so audit history stays truthful (nothing gets
+    // silently rewritten) while still letting an admin work toward fully
+    // clearing out a test/mistaken item's trail two clicks: Delete, then
+    // Wipe Out.
+    const delTitle = isDeletedRow
+      ? 'Wipe Out (Administrator only) — permanently removes this record. Cannot be undone.'
+      : 'Delete (Administrator only) — stages this record as Deleted, dated today. Live inventory is not affected.';
     return `<tr class="border-b border-[#F5F2E8] last:border-0 hover:bg-[#FAF8F1]">
       <td class="px-4 py-2">${escapeHtml(h.itemName)}</td>
       <td class="px-4 py-2 font-mono">${h.assetNumber}</td>
@@ -3016,7 +3004,8 @@ function historyRowsHtml(rows){
           ${admin ? `<button data-hist-open="${h.id}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Open (Administrator only)">${iconEye()}</button>` : ''}
           <button data-hist-print="${h.id}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Print">${iconPrinter()}</button>
           <button data-hist-pdf="${h.id}" class="p-1.5 rounded-lg hover:bg-[#F1EEE3]" title="Export PDF">${iconDownload()}</button>
-          ${admin ? `<button data-hist-del="${h.id}" class="p-1.5 rounded-lg hover:bg-red-50 text-red-500" title="Delete Record (Administrator only)">${iconTrash()}</button>` : ''}
+          ${admin && isDeletedRow && !hasLive ? `<button data-hist-recover="${h.id}" class="p-1.5 rounded-lg hover:bg-green-50 text-green-600" title="Recover (Administrator only) — restores this item to active inventory from this record.">${iconRestore()}</button>` : ''}
+          ${admin ? `<button data-hist-del="${h.id}" class="p-1.5 rounded-lg hover:bg-red-50 text-red-500" title="${escapeHtml(delTitle)}">${iconTrash()}</button>` : ''}
         </div>
       </td>
     </tr>`;
@@ -3073,29 +3062,97 @@ function bindHistoryRowActions(){
     if(!isAdminSession()){ showToast('Only the Administrator account can open/edit from History.','error'); return; }
     const rec = state.history.find(h=>h.id===b.getAttribute('data-hist-open'));
     if(!rec) return;
-    const live = state.assets.find(a=>a.id===rec.assetNumber || (a.assetNumber===rec.assetNumber && a.condition===rec.condition));
-    openEditor(live || rec);
+    const live = findLiveAssetForHistoryRow(rec);
+    // v4.47: this used to fall back to openEditor(rec) — opening the raw
+    // History log entry itself in the edit form — whenever the underlying
+    // asset no longer existed (e.g. it was permanently deleted). A History
+    // entry has its own `id` field (the log entry's own id, not the item's),
+    // and saveStandardItem() decides new-vs-update purely from `!e.id` — so
+    // that non-empty id made Save think it was editing a real existing item.
+    // Saving (or deleting) from that state silently resurrected the item back
+    // into active inventory under the wrong internal id and logged it as
+    // "updated" (or "deleted" again) instead of reflecting that it had
+    // already been permanently removed. There is no live item to open here,
+    // so don't open the editor at all — send the admin to the tools that
+    // actually apply to a gone-for-good item: Print/Export PDF to view the
+    // historical snapshot, Recover to bring it back to active inventory, or
+    // the trash icon to purge the log entry itself.
+    if(!live){
+      showToast('This item no longer exists in active inventory — nothing to open for editing. Use Print or Export PDF to view this record, Recover to restore it, or the trash icon to remove it from History.','error');
+      return;
+    }
+    openEditor(live);
   }));
   document.querySelectorAll('[data-hist-print]').forEach(b=>b.addEventListener('click', ()=>{
     const rec = state.history.find(h=>h.id===b.getAttribute('data-hist-print'));
     if(!rec) return;
-    const live = state.assets.find(a=>a.id===rec.assetNumber || (a.assetNumber===rec.assetNumber && a.condition===rec.condition));
-    printSingle(live || rec);
+    printSingle(findLiveAssetForHistoryRow(rec) || rec);
   }));
   document.querySelectorAll('[data-hist-pdf]').forEach(b=>b.addEventListener('click', ()=>{
     const rec = state.history.find(h=>h.id===b.getAttribute('data-hist-pdf'));
     if(!rec) return;
-    const live = state.assets.find(a=>a.id===rec.assetNumber || (a.assetNumber===rec.assetNumber && a.condition===rec.condition));
-    exportSinglePdf(live || rec);
+    exportSinglePdf(findLiveAssetForHistoryRow(rec) || rec);
+  }));
+  document.querySelectorAll('[data-hist-recover]').forEach(b=>b.addEventListener('click', async ()=>{
+    if(!isAdminSession()){ showToast('Only the Administrator account can recover a history record.','error'); return; }
+    const rec = state.history.find(h=>h.id===b.getAttribute('data-hist-recover'));
+    if(!rec) return;
+    if(findLiveAssetForHistoryRow(rec)){ showToast('An active item already exists for this record — nothing to recover.','error'); return; }
+    // v4.48: a History row only ever stores the fields logHistory() snapshots
+    // (name/category/location/qty/condition/image/notes) — not the full asset
+    // record (purchase price/date, vendor, sub-category, remarks). Recover is
+    // a best-effort restore from what was actually logged, not a perfect
+    // undo; those extra fields start blank, same as any other new item.
+    const numberTaken = state.assets.some(a=>a.assetNumber===rec.assetNumber);
+    const msg = numberTaken
+      ? `Asset #${rec.assetNumber} is already in use by a different current item. Recovering "${rec.itemName}" will give it a new Asset Number instead. Continue?`
+      : `Restore "${rec.itemName}" (Asset #${rec.assetNumber}) back into active inventory? Only the fields captured in this record can be restored — Purchase Price, Vendor, and similar details were not logged and will start blank. This logs a new "Recovered" entry; the Deleted record stays as-is.`;
+    const ok = await askConfirm('Recover item?', msg);
+    if(!ok) return;
+    const restored = {
+      id: uuid(),
+      assetNumber: numberTaken ? await nextAssetNumber() : rec.assetNumber,
+      name: rec.itemName, category: rec.category, subCategory:'', location: rec.location,
+      qty: rec.qty, condition: rec.condition, purchasePrice:0, purchaseDate:'', vendor:'',
+      notes: rec.notes||'', imageSrc: rec.imageSrc||'', remarks:'',
+      createdAt: nowISO(), lastUpdated: nowISO()
+    };
+    await idbPut('assets', restored);
+    state.assets.push(restored);
+    await logHistory('recovered', restored);
+    showToast('Item recovered to active inventory.','info');
+    render();
   }));
   document.querySelectorAll('[data-hist-del]').forEach(b=>b.addEventListener('click', async ()=>{
     if(!isAdminSession()){ showToast('Only the Administrator account can delete a history record.','error'); return; }
     const id = b.getAttribute('data-hist-del');
-    const ok = await askConfirm('Delete history record?', 'This only removes the historical log entry, not the live asset.');
+    const rec = state.history.find(h=>h.id===id);
+    if(!rec) return;
+    // v4.48: bin behavior branches on this row's CURRENT action, read fresh
+    // here rather than trusted from render time, since another sync could
+    // have changed the list in between.
+    if(rec.action === 'deleted'){
+      const ok = await askConfirm('Wipe out this history record?', 'This permanently removes the log entry. This cannot be undone. The live asset (already gone) is not affected.');
+      if(!ok) return;
+      await idbDelete('history', id);
+      state.history = state.history.filter(h=>h.id!==id);
+      showToast('History record wiped out.','info');
+      render();
+      return;
+    }
+    // Staging step: never touches live inventory, and never rewrites this
+    // row's own action field (that would make the log lie about when the
+    // item was actually deleted — see the discussion that led to this
+    // design). Instead the old row is removed (tombstoned, so it can't
+    // resurrect via sync) and replaced with a new row dated today with
+    // action "Deleted" — a second click on that new row, once it appears,
+    // wipes it out for good.
+    const ok = await askConfirm('Delete this history record?', 'This replaces it with a new "Deleted" entry dated today, for wiping out later. Live inventory is not affected either way.');
     if(!ok) return;
     await idbDelete('history', id);
     state.history = state.history.filter(h=>h.id!==id);
-    showToast('History record deleted.','info');
+    await logHistory('deleted', { id: rec.assetId, assetNumber: rec.assetNumber, name: rec.itemName, category: rec.category, location: rec.location, qty: rec.qty, condition: rec.condition, imageSrc: rec.imageSrc, notes: rec.notes });
+    showToast('Record marked Deleted — wipe it out from here to remove it completely.','info');
     render();
   }));
 }
@@ -3207,12 +3264,29 @@ function renderSettingsView(){
       </div>
     </section>` : adminLockNotice('Company Metadata')}
 
+    ${admin ? `
+    <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
+      <p class="font-display font-semibold">Administrators</p>
+      <p class="text-[11px] text-[#a89f85]">Anyone on this list sees the same configuration panels you do when they sign in. At least one administrator must always remain.</p>
+      <div class="space-y-2">
+        ${adminEmailList().map(email=>`
+          <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-[#FAF8F1] border border-[#F1EEE3]">
+            <span class="text-sm truncate">${escapeHtml(email)}</span>
+            <button data-admin-remove="${escapeHtml(email)}" class="p-1.5 rounded-lg hover:bg-red-50 text-red-500 shrink-0" title="Remove administrator">${iconTrash()}</button>
+          </div>`).join('')}
+      </div>
+      <div class="flex gap-2">
+        <input id="s-admin-add" type="email" placeholder="name@example.com" class="inp flex-1"/>
+        <button id="s-admin-add-btn" class="px-3 py-1.5 rounded-lg theme-bg text-white text-xs font-medium">Add</button>
+      </div>
+    </section>` : ''}
+
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
       <p class="font-display font-semibold">Asset Categories</p>
-      <p class="text-xs text-[#8a8471]">New categories appear instantly in the New Item form's Category dropdown. Asset codes are auto-derived from the first three letters of the category name (e.g. Glassware → GLA, producing codes like LBY-GLA-000001). Renaming regenerates Asset Numbers for records using it (old numbers stay in History for audit); a category can only be deleted once no current records use it.</p>
+      <p class="text-xs text-[#8a8471]">New categories appear instantly in the New Item form's Category dropdown. A category can only be deleted once no current records use it.</p>
       <div class="flex flex-wrap gap-2">
         ${CATEGORIES.map(c=>`<span class="inline-flex items-center gap-1 text-xs font-mono pl-2.5 pr-1.5 py-1 rounded-full theme-tint theme-text font-semibold">
-          ${escapeHtml(c.name)} · ${c.code}
+          ${escapeHtml(c.name)}
           <button data-cat-rename="${escapeHtml(c.name)}" class="p-1 rounded hover:bg-white/50" title="Rename">${iconEdit()}</button>
           <button data-cat-delete="${escapeHtml(c.name)}" class="p-1 rounded hover:bg-white/50" title="Delete">${iconTrash()}</button>
         </span>`).join('')}
@@ -3223,20 +3297,16 @@ function renderSettingsView(){
           <input id="s-cat-name" type="text" class="inp" list="existing-category-datalist" placeholder="e.g. Glassware"/>
           <datalist id="existing-category-datalist">${CATEGORIES.map(c=>`<option value="${escapeHtml(c.name)}"></option>`).join('')}</datalist>
         </div>
-        <div class="w-24">
-          <label class="lbl">Code</label>
-          <input id="s-cat-code-preview" type="text" class="inp font-mono bg-[#F7F5EF] text-[#8a8471]" readonly value=""/>
-        </div>
         <button id="s-cat-add" class="px-4 py-2.5 rounded-xl theme-bg text-white text-sm font-medium">Add Category</button>
       </div>
     </section>
 
     <section class="bg-white rounded-2xl border border-[#E7E2D3] p-5 space-y-4">
       <p class="font-display font-semibold">Storage Locations</p>
-      <p class="text-xs text-[#8a8471]">Rename a location when the physical space is renamed (e.g. Store Room 1 → Chemical Store) — every current record instantly gets a new Asset Number reflecting the change, while the OLD number stays in History for audit and quantities are untouched. A location can only be deleted once no current records use it.</p>
+      <p class="text-xs text-[#8a8471]">Rename a location when the physical space is renamed (e.g. Store Room 1 → Chemical Store) — every current record instantly reflects the new name; Asset Numbers are permanent and never change on a rename or move. A location can only be deleted once no current records use it.</p>
       <div class="flex flex-wrap gap-2">
         ${LOCATIONS.map(l=>`<span class="inline-flex items-center gap-1 text-xs font-mono pl-2.5 pr-1.5 py-1 rounded-full theme-tint theme-text font-semibold">
-          ${escapeHtml(l.name)} · ${l.code}
+          ${escapeHtml(l.name)}
           <button data-loc-rename="${escapeHtml(l.name)}" class="p-1 rounded hover:bg-white/50" title="Rename">${iconEdit()}</button>
           <button data-loc-delete="${escapeHtml(l.name)}" class="p-1 rounded hover:bg-white/50" title="Delete">${iconTrash()}</button>
         </span>`).join('')}
@@ -3250,10 +3320,6 @@ function renderSettingsView(){
         <div class="w-40">
           <label class="lbl">Zone</label>
           <select id="s-loc-zone" class="inp">${ZONES.map(z=>`<option value="${escapeHtml(z)}">${escapeHtml(z)}</option>`).join('')}</select>
-        </div>
-        <div class="w-24">
-          <label class="lbl">Code</label>
-          <input id="s-loc-code-preview" type="text" class="inp font-mono bg-[#F7F5EF] text-[#8a8471]" readonly value=""/>
         </div>
         <button id="s-loc-add" class="px-4 py-2.5 rounded-xl theme-bg text-white text-sm font-medium">Add Location</button>
       </div>
@@ -3428,7 +3494,6 @@ function renderSettingsView(){
         </div>
       </div>
       <p id="cloud-last-history-sync-text" class="text-[11px] text-[#a89f85]">${historySyncStatusText()}</p>
-      <p id="cloud-fileid-diag-text" class="text-[10px] font-mono text-[#a89f85] opacity-70 break-all">v4.37 diagnostic — compare this line across all devices: Active file ID ${escapeHtml(state.cloud.fileId||'—')} · History file ID ${escapeHtml(state.cloud.historyFileId||'—')}</p>
       <div class="max-h-72 overflow-y-auto scroll-thin">${changelogHtml}</div>
     </section>
   </div>`;
@@ -3560,17 +3625,36 @@ function bindSettingsEvents(){
   const bind = (id, ev, fn)=>{ const el = document.getElementById(id); if(el) el.addEventListener(ev, fn); };
 
   bind('s-name','input', debounce(async e=>{ state.settings.companyName=e.target.value; document.getElementById('sidebar-company-name').textContent = e.target.value||'Company'; renderLogo(); await saveSettingsToDB(); updateA4Preview(); },200));
+  bind('s-admin-add-btn','click', async ()=>{
+    const input = document.getElementById('s-admin-add');
+    const email = (input.value||'').trim().toLowerCase();
+    if(!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ showToast('Enter a valid email address.','error'); return; }
+    const list = adminEmailList();
+    if(list.some(e=>e.toLowerCase()===email)){ showToast('That email is already an administrator.','error'); return; }
+    state.settings.adminEmails = [...list, email];
+    await saveSettingsToDB();
+    input.value = '';
+    showToast('Administrator added.','info');
+    render();
+  });
+  document.querySelectorAll('[data-admin-remove]').forEach(b=>b.addEventListener('click', async ()=>{
+    const email = b.getAttribute('data-admin-remove');
+    const list = adminEmailList();
+    if(list.length <= 1){ showToast('At least one administrator must remain — add another before removing this one.','error'); return; }
+    const ok = await askConfirm('Remove administrator?', `${email} will lose access to configuration panels. This does not affect their Google Drive access to the underlying files.`);
+    if(!ok) return;
+    state.settings.adminEmails = list.filter(e=>e.toLowerCase()!==email.toLowerCase());
+    await saveSettingsToDB();
+    showToast('Administrator removed.','info');
+    render();
+  }));
   bind('s-phone','input', debounce(async e=>{ state.settings.phone=e.target.value; await saveSettingsToDB(); },200));
   bind('s-address','input', debounce(async e=>{ state.settings.address=e.target.value; await saveSettingsToDB(); },200));
   bind('s-email','input', debounce(async e=>{ state.settings.email=e.target.value; await saveSettingsToDB(); },200));
   bind('s-website','input', debounce(async e=>{ state.settings.website=e.target.value; await saveSettingsToDB(); },200));
 
   const catNameInput = document.getElementById('s-cat-name');
-  const catCodePreview = document.getElementById('s-cat-code-preview');
   if(catNameInput){
-    catNameInput.addEventListener('input', ()=>{
-      catCodePreview.value = catNameInput.value.trim() ? deriveCategoryCode(catNameInput.value) : '';
-    });
     catNameInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); document.getElementById('s-cat-add').click(); } });
   }
   bind('s-cat-add','click', async ()=>{
@@ -3579,21 +3663,16 @@ function bindSettingsEvents(){
     if(CATEGORIES.some(c=>c.name.toLowerCase()===name.toLowerCase())){
       showToast('That category already exists.','error'); return;
     }
-    const code = deriveCategoryCode(name);
-    CATEGORIES.push({ code, name });
+    CATEGORIES.push({ name });
     await saveCategories();
-    showToast(`Category "${name}" added (${code}).`);
+    showToast(`Category "${name}" added.`);
     render();
   });
   document.querySelectorAll('[data-cat-rename]').forEach(b=>b.addEventListener('click', ()=>renameCategoryPrompt(b.getAttribute('data-cat-rename'))));
   document.querySelectorAll('[data-cat-delete]').forEach(b=>b.addEventListener('click', ()=>deleteCategoryPrompt(b.getAttribute('data-cat-delete'))));
 
   const locNameInput = document.getElementById('s-loc-name');
-  const locCodePreview = document.getElementById('s-loc-code-preview');
   if(locNameInput){
-    locNameInput.addEventListener('input', ()=>{
-      locCodePreview.value = locNameInput.value.trim() ? deriveLocationCode(locNameInput.value) : '';
-    });
     locNameInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); document.getElementById('s-loc-add').click(); } });
   }
   bind('s-loc-add','click', async ()=>{
@@ -3603,10 +3682,9 @@ function bindSettingsEvents(){
       showToast('That location already exists.','error'); return;
     }
     const zone = document.getElementById('s-loc-zone').value;
-    const code = deriveLocationCode(name);
-    LOCATIONS.push({ code, name, zone });
+    LOCATIONS.push({ name, zone });
     await saveLocations();
-    showToast(`Location "${name}" added (${code}).`);
+    showToast(`Location "${name}" added.`);
     render();
   });
   document.querySelectorAll('[data-loc-rename]').forEach(b=>b.addEventListener('click', ()=>renameLocationPrompt(b.getAttribute('data-loc-rename'))));
@@ -4192,9 +4270,8 @@ async function renameLocationPrompt(oldName){
   const ok = await askConfirm(`Rename "${oldName}" to "${input}"?`, msg);
   if(!ok) return;
 
-  const oldCode = loc.code;
   const ops = affected.map(a=>({ id:a.id, location:a.location }));
-  loc.name = input; loc.code = deriveLocationCode(input);
+  loc.name = input;
   await saveLocations();
 
   for(const row of affected){
@@ -4202,7 +4279,7 @@ async function renameLocationPrompt(oldName){
     row.lastUpdated = nowISO();
     await idbPut('assets', row);
   }
-  lastBulkUndo = { label:`Rename location "${oldName}" \u2192 "${input}"`, ops, renameRevert:{ type:'location', oldName, newName:input, oldCode, newCode:loc.code } };
+  lastBulkUndo = { label:`Rename location "${oldName}" \u2192 "${input}"`, ops, renameRevert:{ type:'location', oldName, newName:input } };
   showToast(`Renamed to "${input}". ${affected.length} record(s) updated.`, 'info');
   render();
 }
@@ -4231,9 +4308,8 @@ async function renameCategoryPrompt(oldName){
   const ok = await askConfirm(`Rename "${oldName}" to "${input}"?`, msg);
   if(!ok) return;
 
-  const oldCode = cat.code;
   const ops = affected.map(a=>({ id:a.id, category:a.category }));
-  cat.name = input; cat.code = deriveCategoryCode(input);
+  cat.name = input;
   await saveCategories();
 
   for(const row of affected){
@@ -4241,7 +4317,7 @@ async function renameCategoryPrompt(oldName){
     row.lastUpdated = nowISO();
     await idbPut('assets', row);
   }
-  lastBulkUndo = { label:`Rename category "${oldName}" \u2192 "${input}"`, ops, renameRevert:{ type:'category', oldName, newName:input, oldCode, newCode:cat.code } };
+  lastBulkUndo = { label:`Rename category "${oldName}" \u2192 "${input}"`, ops, renameRevert:{ type:'category', oldName, newName:input } };
   showToast(`Renamed to "${input}". ${affected.length} record(s) updated.`, 'info');
   render();
 }
@@ -4262,7 +4338,7 @@ async function undoLastBulkChange(){
     const rr = u.renameRevert;
     const arr = rr.type==='location' ? LOCATIONS : CATEGORIES;
     const entry = arr.find(x=>x.name===rr.newName);
-    if(entry){ entry.name = rr.oldName; entry.code = rr.oldCode; }
+    if(entry){ entry.name = rr.oldName; }
     if(rr.type==='location') await saveLocations(); else await saveCategories();
   }
   for(const op of u.ops){
@@ -4713,10 +4789,6 @@ function updateCloudTimestampsUI(){
   if(historyEl){
     historyEl.innerHTML = historySyncStatusText();
   }
-  const fileIdDiagEl = document.getElementById('cloud-fileid-diag-text');
-  if(fileIdDiagEl){
-    fileIdDiagEl.innerHTML = `v4.37 diagnostic — compare this line across all devices: Active file ID ${escapeHtml(state.cloud.fileId||'—')} · History file ID ${escapeHtml(state.cloud.historyFileId||'—')}`;
-  }
 }
 
 /* ---- OAuth (Google Identity Services) -------------------------------------
@@ -4988,6 +5060,16 @@ async function recordDeletionTombstone(id){
   rec.values[id] = nowISO();
   await idbPutRaw('meta', rec);
 }
+/* v4.48: same tombstone pattern as recordDeletionTombstone above, kept under
+   its own meta key (historyDeletedTombstones) so it merges/syncs completely
+   independently of the asset-deletion tombstones — these track deleted
+   History log-entry ids, not deleted assets, and the two must never collide
+   or be confused with each other during a merge. */
+async function recordHistoryDeletionTombstone(id){
+  const rec = (await idbGet('meta','historyDeletedTombstones')) || { key:'historyDeletedTombstones', values:{} };
+  rec.values[id] = nowISO();
+  await idbPutRaw('meta', rec);
+}
 /* Reconciles `remote` (a just-fetched or just-pulled Drive snapshot, or null
    if none available yet) against this device's current local state, writes
    the merged result back to IndexedDB (without re-triggering more pushes —
@@ -5041,11 +5123,13 @@ async function buildActivePayload(){
     deletionRequests: delReq ? delReq.list : []
   };
 }
-function buildHistoryPayload(){
+async function buildHistoryPayload(){
+  const tombstones = await idbGet('meta','historyDeletedTombstones');
   return {
     savedAt: nowISO(),
     history: state.history,
-    changelog: state.meta.changelog
+    changelog: state.meta.changelog,
+    historyDeletedTombstones: tombstones ? tombstones.values : {}
   };
 }
 async function applyRemoteActiveData(remote){
@@ -5081,11 +5165,18 @@ async function applyRemoteActiveData(remote){
 }
 /* History/changelog entries are an append-only log rather than a single mutable
    record, so remote and local copies are merged (union) instead of overwritten —
-   this avoids one device's archive load discarding entries only the other has seen yet. */
-function mergeHistoryEntries(localArr, remoteArr){
+   this avoids one device's archive load discarding entries only the other has seen yet.
+   v4.48: a plain union has no way to tell "this device hasn't heard of this
+   entry yet" apart from "an admin deliberately deleted this entry" on its own
+   — tombstones (deleted History entry ids, same pattern as the asset-deletion
+   tombstones above) are the missing piece; anything tombstoned is dropped
+   after the union, on both push and pull, so a deliberate delete finally
+   sticks instead of quietly reappearing on the next sync. */
+function mergeHistoryEntries(localArr, remoteArr, tombstones){
   const map = new Map();
   (localArr||[]).forEach(x=> x && x.id && map.set(x.id, x));
   (remoteArr||[]).forEach(x=> x && x.id && map.set(x.id, x));
+  Object.keys(tombstones||{}).forEach(id=> map.delete(id));
   return Array.from(map.values()).sort((a,b)=> new Date(b.date)-new Date(a.date));
 }
 function cmpVersionStr(a,b){
@@ -5106,7 +5197,9 @@ async function applyRemoteHistoryData(remote){
   if(!remote) return;
   state.cloud.applyingRemote = true;
   try{
-    const mergedHistory = mergeHistoryEntries(state.history, remote.history);
+    const localTombstones = (await idbGet('meta','historyDeletedTombstones')) || { values:{} };
+    const mergedTombstones = mergeTombstones(localTombstones.values, remote.historyDeletedTombstones);
+    const mergedHistory = mergeHistoryEntries(state.history, remote.history, mergedTombstones);
     const mergedChangelog = mergeChangelogEntries(state.meta.changelog, remote.changelog);
     // v4.45: was idbClear/idbPut (non-Raw), unlike the otherwise-identical
     // merge-and-rewrite step in pushHistoryToCloud (idbClearRaw/idbPutRaw)
@@ -5129,6 +5222,7 @@ async function applyRemoteHistoryData(remote){
     await idbClearRaw('history');
     for(const h of mergedHistory) await idbPutRaw('history', h);
     await idbPutRaw('meta', { key:'version', version: state.meta.version, changelog: mergedChangelog });
+    await idbPutRaw('meta', { key:'historyDeletedTombstones', values: mergedTombstones });
     await loadAllData();
     state.cloud.historyDirty = false;
     render();
@@ -5281,80 +5375,38 @@ async function pushToCloud(){
 }
 /* ---- History archive: lazy connect, only when History/Settings is opened - */
 async function ensureHistoryCloudLoaded(){
-  // v4.39: historySyncing added to this guard. Without it, two overlapping
-  // calls could race — e.g. the v4.38 poll-tick retry firing again before a
-  // slow-connection call finishes, or rapid nav clicks re-triggering the
-  // navigateTo() call site below (which only ever checked historyLoaded,
-  // itself only set true at the very end). Two calls racing through the same
-  // find/create steps could each briefly null out the id the other had just
-  // set, leaving historyFileId stuck null even though historyLoaded and
-  // lastHistorySync got set true/fresh by whichever call finished first —
-  // exactly the "recent sync time, blank File ID" combination seen on a
-  // weak-signal mobile device where a single call is more likely to outlast
-  // one 20s poll tick.
+  // historySyncing guards against two overlapping calls racing through the
+  // same lookup/create steps (e.g. the 20s poll-tick retry firing again
+  // before a slow-connection call finishes).
   if(!state.cloud.connected || state.cloud.historyLoaded || state.cloud.applyingRemote || state.cloud.historySyncing) return;
-  // v4.41: breadcrumb trail. Static analysis of v4.39/v4.40's logic says the
-  // final "not resolved" fallback below should be unreachable — every branch
-  // sets historyFileId to something truthy before falling through, or throws
-  // its own labeled error first. Since it kept firing anyway on mobile with
-  // none of those specific labels ever appearing, something about the actual
-  // runtime path isn't matching this reading of the code. Rather than guess
-  // again, record exactly which branch ran and what each step returned, and
-  // include that trail in the error itself.
-  const steps = [];
   try{
     state.cloud.historySyncing = true; renderCloudSidebar();
     let fileMeta = null;
     if(state.cloud.historyFileId){
-      steps.push('had-cached:'+state.cloud.historyFileId);
-      try{ fileMeta = await getMasterFileMeta(state.cloud.historyFileId); steps.push('cached-ok'); }
-      catch(e){ state.cloud.historyFileId = null; steps.push('cached-failed:'+e.message); } // cached id no longer resolves — fall back to a name search below
-    } else { steps.push('no-cached-id'); }
+      try{ fileMeta = await getMasterFileMeta(state.cloud.historyFileId); }
+      catch(e){ state.cloud.historyFileId = null; } // cached id no longer resolves — fall back to a name search below
+    }
     if(!state.cloud.historyFileId){
-      let existing;
-      try{ existing = await findMasterFileByName(CLOUD_HISTORY_FILE_NAME); steps.push('search-ran'); }
-      catch(e){ steps.push('search-threw:'+e.message); throw new Error('name-search step failed: '+e.message); }
-      if(existing && !existing.id){ steps.push('search-found-no-id:'+JSON.stringify(existing).slice(0,80)); throw new Error('name-search returned a file with no id: '+JSON.stringify(existing).slice(0,150)); }
-      if(existing){ state.cloud.historyFileId = existing.id; fileMeta = existing; steps.push('search-found:'+existing.id); }
-      else steps.push('search-found-nothing');
+      const existing = await findMasterFileByName(CLOUD_HISTORY_FILE_NAME);
+      if(existing){ state.cloud.historyFileId = existing.id; fileMeta = existing; }
     }
     if(state.cloud.historyFileId){
-      steps.push('taking-download-branch:id='+state.cloud.historyFileId);
-      // v4.41 real fix: persist the resolved id to IndexedDB *before*
-      // applyRemoteHistoryData runs. applyRemoteHistoryData calls
-      // loadAllData(), which calls loadCloudConfig(), which re-reads
-      // historyFileId FROM IndexedDB — if this device had never saved a
-      // historyFileId before (its first time finding an already-existing
-      // History file, e.g. one created by a different device), that disk
-      // value was still null/stale, and that re-read was clobbering the
-      // just-resolved in-memory id back to null moments before the final
-      // check below — exactly the "all steps reported success, but no id
-      // ended up set" contradiction. The create branch never called
-      // applyRemoteHistoryData, which is why it never hit this.
+      // Persist the resolved id to IndexedDB *before* applyRemoteHistoryData
+      // runs — that function calls loadAllData() -> loadCloudConfig(), which
+      // re-reads historyFileId FROM IndexedDB, so it must already be saved
+      // or a device finding an already-existing file for the first time
+      // would have that re-read clobber the just-resolved in-memory id.
       await saveCloudConfigToDB();
-      let remote;
-      try{ remote = await downloadMasterFile(state.cloud.historyFileId); steps.push('download-ok'); }
-      catch(e){ steps.push('download-threw:'+e.message); throw new Error('download step failed for id '+state.cloud.historyFileId+': '+e.message); }
+      const remote = await downloadMasterFile(state.cloud.historyFileId);
       await applyRemoteHistoryData(remote);
-      steps.push('applied-remote:id-after='+state.cloud.historyFileId);
       state.cloud.lastHistoryRemoteModified = fileMeta ? fileMeta.modifiedTime : null;
     } else {
-      steps.push('taking-create-branch');
-      const payload = buildHistoryPayload();
-      let created;
-      try{ created = await createNamedFile(CLOUD_HISTORY_FILE_NAME, payload); steps.push('create-ran'); }
-      catch(e){ steps.push('create-threw:'+e.message); throw new Error('create step failed: '+e.message); }
-      if(!created || !created.id){ steps.push('create-no-id:'+JSON.stringify(created).slice(0,80)); throw new Error('create step returned no id: '+JSON.stringify(created).slice(0,150)); }
+      const payload = await buildHistoryPayload();
+      const created = await createNamedFile(CLOUD_HISTORY_FILE_NAME, payload);
       state.cloud.historyFileId = created.id;
-      steps.push('create-got-id:'+created.id);
       state.cloud.lastHistoryRemoteModified = created.modifiedTime;
     }
-    // v4.39 safety net: the checks above should make this condition
-    // impossible, but if historyFileId is somehow still empty here, treat it
-    // as a failure rather than marking the load "successful" — this is the
-    // exact contradiction (loaded=true, ID blank) that caused the
-    // "fresh sync time but no File ID" symptom.
-    if(!state.cloud.historyFileId) throw new Error('History file ID was not resolved. Trail: '+steps.join(' > '));
+    if(!state.cloud.historyFileId) throw new Error('History file ID was not resolved.');
     await saveCloudConfigToDB();
     state.cloud.historyLoaded = true;
     state.cloud.historySyncReady = true;
@@ -5366,11 +5418,10 @@ async function ensureHistoryCloudLoaded(){
     const isNewError = state.cloud.lastHistoryPushError !== err.message;
     state.cloud.lastHistoryPushError = err.message;
     updateCloudTimestampsUI();
-    // v4.38: the load now retries every ~20s poll tick regardless of a
-    // pending edit (see pollCloud), so a persistent failure would otherwise
-    // re-toast every tick — only surface it the first time this exact error
-    // appears, the persistent "Last history sync error" line in Settings
-    // already covers ongoing visibility without repeat interruptions.
+    // The load retries every ~20s poll tick regardless of a pending edit, so
+    // a persistent failure would otherwise re-toast every tick — only
+    // surface it the first time this exact error appears; the persistent
+    // "Last history sync error" line in Settings covers ongoing visibility.
     if(isNewError) showToast('Could not load the history archive from Google Drive: '+err.message,'error');
   } finally {
     state.cloud.historySyncing = false; renderCloudSidebar();
@@ -5394,8 +5445,10 @@ async function pushHistoryToCloud(){
     let remote = null;
     try{ remote = await downloadMasterFile(state.cloud.historyFileId); }
     catch(e){ console.log('[cloud] pre-push history remote fetch failed, pushing local state only:', e.message); }
+    const localTombstones = (await idbGet('meta','historyDeletedTombstones')) || { values:{} };
+    const mergedTombstones = mergeTombstones(localTombstones.values, remote && remote.historyDeletedTombstones);
     if(remote){
-      state.history = mergeHistoryEntries(state.history, remote.history);
+      state.history = mergeHistoryEntries(state.history, remote.history, mergedTombstones);
       state.meta.changelog = mergeChangelogEntries(state.meta.changelog, remote.changelog);
       // Raw variants — this merge runs as part of a push, so its own
       // clear-and-rewrite must never itself schedule another push (same
@@ -5404,7 +5457,8 @@ async function pushHistoryToCloud(){
       for(const h of state.history) await idbPutRaw('history', h);
       await idbPutRaw('meta', { key:'version', version: state.meta.version, changelog: state.meta.changelog });
     }
-    const payload = buildHistoryPayload();
+    await idbPutRaw('meta', { key:'historyDeletedTombstones', values: mergedTombstones });
+    const payload = await buildHistoryPayload();
     const updated = await updateMasterFile(state.cloud.historyFileId, payload);
     state.cloud.lastHistoryRemoteModified = updated.modifiedTime;
     state.cloud.lastHistorySync = nowISO();
