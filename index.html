@@ -1114,14 +1114,14 @@ async function logHistory(action, item){
 // separately-maintained WhatsNew.md, hosted alongside index.html. See
 // initMeta() below for how a device catches up to the current entry.
 const DEFAULT_CHANGELOG = [
-  { version:'4.51', date: nowISO(), type:'minor', summary:'Split the growing Version & Change Log out of the app itself, and moved Cloud/Company/Admin configuration into its own file.',
-    detail:'Two structural changes, no change to day-to-day functionality: (1) The full version history previously lived inside index.html as a large embedded array, growing with every release and adding real weight to every page load even though almost no one ever opened it. That full history now lives in a separate WhatsNew.md file instead, hosted alongside index.html on GitHub Pages and maintained independently. The Settings \u2192 Version & Change Log panel now shows only the current version\u2019s badge, type, date and one-line summary instead of a scrollable list of every past release \u2014 the download button is now a plain link to WhatsNew.md, with no JavaScript generating it on the fly anymore. (2) Google Drive credentials (Client ID, API Key, target Folder ID), the mobile-upload images-folder ID, default company branding (name, address, phone, email, logo), and the fallback admin seed email were all moved out of index.html into a new config.js file, loaded via a script tag before the main app script. This is an organizational split for cleaner future edits \u2014 it is explicitly NOT a security measure: config.js is just as publicly downloadable as index.html itself on a static, backend-less site. The real access boundary remains Google Drive\u2019s own sharing permission on the underlying data files, unchanged by this update.' },
+  { version:'4.52', date: nowISO(), type:'patch', summary:'Location/Area item cards were truncating asset names because the thumbnail image and Batch/Split buttons crowded the name onto one line \u2014 restructured so the name gets its own full-width line.',
+    detail:'On the per-location item cards (e.g. Dining Area, or any Location page), the 80px thumbnail image, the item name, and the +Batch/Split buttons previously all shared one horizontal row, forcing long names to truncate with "\u2026" (e.g. "Table Mats-Cl\u2026", "Drinking Wate\u2026") even though there was room to show them in full. Restructured the card into three stacked sections instead: the item name and its Asset Number/Category line now sit alone on their own full-width row with nothing to compete with for space, wrapping naturally onto a second line for longer names instead of being cut off. The thumbnail image and the +Batch/Split buttons were both moved down onto a second row together (image left, buttons right), and Total Qty/Usable Qty kept as their own row below that, same as before. The Select Items checkbox (when in Select mode) moved down to sit alongside the image on that same second row, since the top row is now dedicated to the name alone. No new CSS classes were needed \u2014 every class used here was already compiled into style.css from elsewhere in the app, so style.css does not need to be rebuilt for this update.' },
 ];
 
 async function initMeta(){
   let m = await idbGet('meta','version');
   if(!m){
-    m = { key:'version', version:'4.51', changelog: DEFAULT_CHANGELOG };
+    m = { key:'version', version:'4.52', changelog: DEFAULT_CHANGELOG };
     await idbPut('meta', m);
   }
   state.meta.version = m.version;
@@ -1783,24 +1783,22 @@ function renderLocationView(){
     }).join('');
 
     return `<div class="bg-white rounded-2xl border border-[#E7E2D3] overflow-hidden">
-      <div class="flex gap-4 p-4">
-        ${state.selectMode ? `<label class="flex items-start pt-7 shrink-0"><input type="checkbox" data-select-group="${key}" ${state.selectedGroups.has(key)?'checked':''} class="w-4 h-4 rounded accent-current"/></label>` : ''}
-        <div class="w-20 h-20 rounded-xl overflow-hidden bg-[#F1EEE3] shrink-0 flex items-center justify-center text-[#c9c3ac]">${img}</div>
-        <div class="min-w-0 flex-1">
-          <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0">
-              <p class="font-display font-semibold truncate">${escapeHtml(rep.name)}</p>
-              <p class="text-[11px] font-mono text-[#a89f85]">${key} · ${rep.category}${rep.subCategory ? ' · '+escapeHtml(rep.subCategory) : ''}</p>
-            </div>
-            <div class="flex gap-2 shrink-0">
-              <button data-batch="${key}" class="text-[11px] px-2.5 py-1 rounded-lg border border-[#E2DFD3] font-medium hover:bg-[#F1EEE3]">+ Batch</button>
-              <button data-split="${key}" class="text-[11px] px-2.5 py-1 rounded-lg theme-bg text-white font-medium">Split</button>
-            </div>
+      <div class="p-4 space-y-3">
+        <div class="min-w-0">
+          <p class="font-display font-semibold">${escapeHtml(rep.name)}</p>
+          <p class="text-[11px] font-mono text-[#a89f85]">${key} · ${rep.category}${rep.subCategory ? ' · '+escapeHtml(rep.subCategory) : ''}</p>
+        </div>
+        <div class="flex items-center gap-3">
+          ${state.selectMode ? `<label class="flex items-center shrink-0"><input type="checkbox" data-select-group="${key}" ${state.selectedGroups.has(key)?'checked':''} class="w-4 h-4 rounded accent-current"/></label>` : ''}
+          <div class="w-20 h-20 rounded-xl overflow-hidden bg-[#F1EEE3] shrink-0 flex items-center justify-center text-[#c9c3ac]">${img}</div>
+          <div class="flex gap-2 shrink-0 ml-auto">
+            <button data-batch="${key}" class="text-[11px] px-2.5 py-1 rounded-lg border border-[#E2DFD3] font-medium hover:bg-[#F1EEE3]">+ Batch</button>
+            <button data-split="${key}" class="text-[11px] px-2.5 py-1 rounded-lg theme-bg text-white font-medium">Split</button>
           </div>
-          <div class="flex gap-4 mt-2">
-            <div><p class="text-[10px] uppercase text-[#a89f85] font-semibold">Total Qty</p><p class="font-mono font-semibold text-lg">${total}</p></div>
-            <div><p class="text-[10px] uppercase text-[#a89f85] font-semibold">Usable Qty</p><p class="font-mono font-semibold text-lg theme-text">${usable}</p></div>
-          </div>
+        </div>
+        <div class="flex gap-4">
+          <div><p class="text-[10px] uppercase text-[#a89f85] font-semibold">Total Qty</p><p class="font-mono font-semibold text-lg">${total}</p></div>
+          <div><p class="text-[10px] uppercase text-[#a89f85] font-semibold">Usable Qty</p><p class="font-mono font-semibold text-lg theme-text">${usable}</p></div>
         </div>
       </div>
       <div class="px-4 pb-4">${conditionRows}</div>
