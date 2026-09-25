@@ -6,6 +6,14 @@ Full release history. The app itself only shows the current version — download
 
 ---
 
+### v4.52 · PATCH · 2026-09-25
+
+**Location/Area item cards were truncating asset names because the thumbnail image and Batch/Split buttons crowded the name onto one line — restructured so the name gets its own full-width line.**
+
+On the per-location item cards (e.g. Dining Area, or any Location page), the 80px thumbnail image, the item name, and the +Batch/Split buttons previously all shared one horizontal row, forcing long names to truncate with "…" (e.g. "Table Mats-Cl…", "Drinking Wate…") even though there was room to show them in full. Restructured the card into three stacked sections instead: the item name and its Asset Number/Category line now sit alone on their own full-width row with nothing to compete with for space, wrapping naturally onto a second line for longer names instead of being cut off. The thumbnail image and the +Batch/Split buttons were both moved down onto a second row together (image left, buttons right), and Total Qty/Usable Qty kept as their own row below that, same as before. The Select Items checkbox (when in Select mode) moved down to sit alongside the image on that same second row, since the top row is now dedicated to the name alone. No new CSS classes were needed — every class used here was already compiled into style.css from elsewhere in the app, so style.css does not need to be rebuilt for this update.
+
+---
+
 ### v4.51 · MINOR · 2026-09-10
 
 **Split the growing Version & Change Log out of the app itself, and moved Cloud/Company/Admin configuration into its own file.**
